@@ -1,11 +1,11 @@
 package com.qcloud.chdfs.fs;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.DelegateToFileSystem;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.DelegateToFileSystem;
 
 public class CHDFSDelegateFSAdapter extends DelegateToFileSystem {
 

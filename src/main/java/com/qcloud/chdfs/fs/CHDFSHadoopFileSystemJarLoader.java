@@ -2,21 +2,6 @@ package com.qcloud.chdfs.fs;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-
-import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.net.URLConnection;
-import java.net.URLEncoder;
-import java.nio.channels.FileLock;
-
 import org.apache.commons.codec.binary.Hex;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.io.IOUtils;
@@ -25,9 +10,13 @@ import org.apache.hadoop.util.VersionInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.*;
+import java.net.*;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+
 class CHDFSHadoopFileSystemJarLoader {
 
-    static final CHDFSHadoopFileSystemJarLoader INSTANCE = new CHDFSHadoopFileSystemJarLoader();
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemJarLoader.class);
     private String versionId;
     private String jarPath;
@@ -35,7 +24,8 @@ class CHDFSHadoopFileSystemJarLoader {
 
     private FileSystem actualFileSystem;
 
-    private CHDFSHadoopFileSystemJarLoader() {
+
+    CHDFSHadoopFileSystemJarLoader() {
 
     }
 
@@ -146,10 +136,33 @@ class CHDFSHadoopFileSystemJarLoader {
         FileLock fileLock = null;
         try {
             fos = new FileOutputStream(localCacheJarFile);
-            fileLock = fos.getChannel().lock();
         } catch (IOException e) {
             log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
             return null;
+        }
+        while(true) {
+            try {
+                fileLock = fos.getChannel().lock();
+                break;
+            } catch (OverlappingFileLockException ofle) {
+                try {
+                    Thread.sleep(10L);
+                } catch (InterruptedException e) {
+                    log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
+                    try {
+                        fos.close();
+                    } catch (IOException ignore) {
+                    }
+                    return null;
+                }
+            } catch (IOException e) {
+                log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
+                try {
+                    fos.close();
+                } catch (IOException ignore) {
+                }
+                return null;
+            }
         }
 
         BufferedInputStream bis = null;

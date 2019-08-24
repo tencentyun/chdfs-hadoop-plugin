@@ -1,21 +1,17 @@
 package com.qcloud.chdfs.fs;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.*;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.util.Progressable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.regex.Pattern;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.util.Progressable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
@@ -26,6 +22,11 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.chdfs.tmp.cache.dir";
     private static final String CHDFS_JAR_PLUGIN_SERVER_PORT_KEY = "fs.chdfs.jar.plugin.server.port";
     private static final int DEFAULT_CHDFS_JAR_PLUGIN_SERVER_PORT = 8080;
+
+    private CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
+    private FileSystem actualImplFS = null;
+    private URI uri = null;
+    private Path workingDir = null;
 
     @Override
     public String getScheme() {
@@ -107,115 +108,258 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
-        super.initialize(name, conf);
+        try {
+            super.initialize(name, conf);
 
-        String mountPointAddr = name.getHost();
-        if (!isValidMountPointAddr(mountPointAddr)) {
-            String errMsg = "mountPointAddr is invalid, exp. f4mabcdefgh-xyzw.chdfs.ap-guangzhou.myqcloud.com";
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
+            String mountPointAddr = name.getHost();
+            if (mountPointAddr == null || !isValidMountPointAddr(mountPointAddr)) {
+                String errMsg = "mountPointAddr is invalid, exp. f4mabcdefgh-xyzw.chdfs.ap-guangzhou.myqcloud.com";
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            }
 
-        long appid = getAppid(conf);
-        int jarPluginServerPort = getJarPluginServerPort(conf);
-        String tmpDirPath = initCacheTmpDir(conf);
-        if (!CHDFSHadoopFileSystemJarLoader.INSTANCE.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath)) {
-            String errMsg = "init chdfs impl failed";
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        } else {
-            CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem().initialize(name, conf);
+            long appid = getAppid(conf);
+            int jarPluginServerPort = getJarPluginServerPort(conf);
+            String tmpDirPath = initCacheTmpDir(conf);
+            if (!jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath)) {
+                String errMsg = "init chdfs impl failed";
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            }
+
+            this.actualImplFS = jarLoader.getActualFileSystem();
+            if (this.actualImplFS == null) {
+                // should never reach here
+                throw new IOException("impl filesystem is null");
+            }
+
+            this.actualImplFS.initialize(name, conf);
+            this.uri = this.actualImplFS.getUri();
+            this.workingDir = this.actualImplFS.getWorkingDirectory();
+        } catch (IOException ioe) {
+            log.error("initialize failed! a ioException occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("initialize failed! a unexpected exception occur!", e);
+            throw new IOException("initialize failed! oops! a unexpected exception occur! " + e.toString(), e);
         }
     }
 
 
     @java.lang.Override
     public java.net.URI getUri() {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem().getUri();
+        return this.uri;
     }
 
     @java.lang.Override
     public FSDataInputStream open(Path f, int bufferSize) throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem().open(f, bufferSize);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.open(f, bufferSize);
+        } catch (IOException ioe) {
+            log.error("open failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("open failed! a unexpected exception occur!", e);
+            throw new IOException("open failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public FSDataOutputStream create(Path f, FsPermission permission, boolean overwrite,
                                      int bufferSize, short replication, long blockSize, Progressable progress)
             throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
+        } catch (IOException ioe) {
+            log.error("create failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("create failed! a unexpected exception occur!", e);
+            throw new IOException("create failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public FSDataOutputStream append(Path f, int bufferSize, Progressable progress)
             throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .append(f, bufferSize, progress);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.append(f, bufferSize, progress);
+        } catch (IOException ioe) {
+            log.error("append failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("append failed! a unexpected exception occur!", e);
+            throw new IOException("append failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public boolean rename(Path src, Path dst) throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .rename(src, dst);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.rename(src, dst);
+        } catch (IOException ioe) {
+            log.error("rename failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("rename failed! a unexpected exception occur!", e);
+            throw new IOException("rename failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public boolean delete(Path f, boolean recursive) throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .delete(f, recursive);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.delete(f, recursive);
+        } catch (IOException ioe) {
+            log.error("delete failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("delete failed! a unexpected exception occur!", e);
+            throw new IOException("delete failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public FileStatus[] listStatus(Path f) throws FileNotFoundException, IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .listStatus(f);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.listStatus(f);
+        } catch (IOException ioe) {
+            log.error("listStatus failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("listStatus failed! a unexpected exception occur!", e);
+            throw new IOException("listStatus failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public void setWorkingDirectory(Path new_dir) {
-        CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .setWorkingDirectory(new_dir);
+        if (this.actualImplFS == null) {
+            this.workingDir = new_dir;
+            log.warn("fileSystem is not init yet!");
+        } else {
+            this.workingDir = new_dir;
+            this.actualImplFS.setWorkingDirectory(new_dir);
+        }
     }
 
     @java.lang.Override
     public Path getWorkingDirectory() {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .getWorkingDirectory();
+        return this.workingDir;
     }
 
     @java.lang.Override
     public boolean mkdirs(Path f, FsPermission permission) throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .mkdirs(f, permission);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.mkdirs(f, permission);
+        } catch (IOException ioe) {
+            log.error("mkdir failed! a unexpected exception occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("mkdir failed! a unexpected exception occur!", e);
+            throw new IOException("mkdir failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @java.lang.Override
     public FileStatus getFileStatus(Path f) throws IOException {
-        return CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .getFileStatus(f);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getFileStatus(f);
+        } catch (IOException ioe) {
+            log.error("getFileStatus failed! a ioException occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getFileStatus failed! a unexpected exception occur!", e);
+            throw new IOException("getFileStatus failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @Override
     public void setPermission(Path p, FsPermission permission) throws IOException {
-        CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem().setPermission(p, permission);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.setPermission(p, permission);
+        } catch (IOException ioe) {
+            log.error("setPermission failed! a ioException occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("setPermission failed! a unexpected exception occur!", e);
+            throw new IOException("setPermission failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @Override
     public void setOwner(Path p, String username, String groupname) throws IOException {
-        CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .setOwner(p, username, groupname);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.setOwner(p, username, groupname);
+        } catch (IOException ioe) {
+            log.error("setOwner failed! a ioException occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("setOwner failed! a unexpected exception occur!", e);
+            throw new IOException("setOwner failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @Override
     public void setTimes(Path p, long mtime, long atime) throws IOException {
-        CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem()
-                .setTimes(p, mtime, atime);
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.setTimes(p, mtime, atime);
+        } catch (IOException ioe) {
+            log.error("setTimes failed! a ioException occur!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("setTimes failed! a unexpected exception occur!", e);
+            throw new IOException("setTimes failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 
     @Override
     public void close() throws IOException {
-        CHDFSHadoopFileSystemJarLoader.INSTANCE.getActualFileSystem().close();
-        super.close();
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.close();
+            super.close();
+        } catch (IOException ioe) {
+            log.error("close fileSystem occur a ioException!", ioe);
+            throw ioe;
+        } catch (Exception e) {
+            log.error("close fileSystem failed! a unexpected exception occur!", e);
+            throw new IOException("close fileSystem failed! a unexpected exception occur! " + e.getMessage());
+        }
     }
 }
