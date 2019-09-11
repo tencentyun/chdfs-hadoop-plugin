@@ -20,13 +20,16 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.myqcloud\\.com$";
     private static final String CHDFS_USER_APPID_KEY = "fs.chdfs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.chdfs.tmp.cache.dir";
-    private static final String CHDFS_JAR_PLUGIN_SERVER_PORT_KEY = "fs.chdfs.jar.plugin.server.port";
-    private static final int DEFAULT_CHDFS_JAR_PLUGIN_SERVER_PORT = 8080;
+    private static final String CHDFS_META_SERVER_PORT_KEY = "fs.chdfs.meta.server.port";
+    private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.chdfs.meta.transfer.tls";
+    private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
+    private static final int DEFAULT_CHDFS_META_SERVER_PORT = 8080;
 
     private CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
     private FileSystem actualImplFS = null;
     private URI uri = null;
     private Path workingDir = null;
+    private long initStartMs;
 
     @Override
     public String getScheme() {
@@ -102,12 +105,18 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     }
 
     private int getJarPluginServerPort(Configuration conf) {
-        return conf.getInt(CHDFS_JAR_PLUGIN_SERVER_PORT_KEY, DEFAULT_CHDFS_JAR_PLUGIN_SERVER_PORT);
+        return conf.getInt(CHDFS_META_SERVER_PORT_KEY, DEFAULT_CHDFS_META_SERVER_PORT);
+    }
+
+    private boolean isJarPluginServerHttps(Configuration conf) {
+        return conf.getBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, DEFAULT_CHDFS_META_TRANSFER_USE_TLS);
     }
 
 
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
+        this.initStartMs = System.currentTimeMillis();
+        log.info("start-init-start time: {}", initStartMs);
         try {
             super.initialize(name, conf);
 
@@ -120,12 +129,15 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
             long appid = getAppid(conf);
             int jarPluginServerPort = getJarPluginServerPort(conf);
+            boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
             String tmpDirPath = initCacheTmpDir(conf);
-            if (!jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath)) {
+            long initJarStartMs = System.currentTimeMillis();
+            if (!jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag)) {
                 String errMsg = "init chdfs impl failed";
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
+            log.info("init jar, [elapse-ms: {}]", System.currentTimeMillis() - initJarStartMs);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -133,7 +145,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
                 throw new IOException("impl filesystem is null");
             }
 
+            long actualInitStartMs = System.currentTimeMillis();
             this.actualImplFS.initialize(name, conf);
+            log.info("init actual file system, [elapse-ms: {}]", System.currentTimeMillis() - actualInitStartMs);
             this.uri = this.actualImplFS.getUri();
             this.workingDir = this.actualImplFS.getWorkingDirectory();
         } catch (IOException ioe) {
@@ -143,6 +157,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             log.error("initialize failed! a unexpected exception occur!", e);
             throw new IOException("initialize failed! oops! a unexpected exception occur! " + e.toString(), e);
         }
+        log.info("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
     }
 
 
@@ -225,6 +240,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         }
         try {
             return this.actualImplFS.delete(f, recursive);
+
         } catch (IOException ioe) {
             log.error("delete failed! a unexpected exception occur!", ioe);
             throw ioe;
@@ -289,6 +305,8 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         }
         try {
             return this.actualImplFS.getFileStatus(f);
+        } catch (FileNotFoundException fe) {
+            throw fe;
         } catch (IOException ioe) {
             log.error("getFileStatus failed! a ioException occur!", ioe);
             throw ioe;
@@ -352,7 +370,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             throw new IOException("please init the fileSystem first!");
         }
         try {
+            long actualCloseStartTimeMs = System.currentTimeMillis();
             this.actualImplFS.close();
+            log.info("actual-file-system-close usedTime: {}", System.currentTimeMillis() - actualCloseStartTimeMs);
             super.close();
         } catch (IOException ioe) {
             log.error("close fileSystem occur a ioException!", ioe);
@@ -361,5 +381,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             log.error("close fileSystem failed! a unexpected exception occur!", e);
             throw new IOException("close fileSystem failed! a unexpected exception occur! " + e.getMessage());
         }
+        long endMs = System.currentTimeMillis();
+        log.info("end-close time: {}, total-used-time: {}", endMs, endMs - initStartMs);
     }
 }
