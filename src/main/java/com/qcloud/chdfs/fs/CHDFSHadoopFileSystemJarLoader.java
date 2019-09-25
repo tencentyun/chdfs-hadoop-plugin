@@ -29,7 +29,7 @@ class CHDFSHadoopFileSystemJarLoader {
 
     }
 
-    private boolean queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort) {
+    private boolean queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort, boolean jarPluginServerHttpsFlag) {
         String hadoopVersion = VersionInfo.getVersion();
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
@@ -37,15 +37,17 @@ class CHDFSHadoopFileSystemJarLoader {
         URL queryJarUrl = null;
         try {
             queryJarUrl = new URL(
-                    String.format("http://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
-                            mountPointAddr, jarPluginServerPort, appid, URLEncoder.encode(hadoopVersion.trim(), "UTF-8")));
+                    String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
+                            jarPluginServerHttpsFlag ? "https" : "http", mountPointAddr, jarPluginServerPort, appid, URLEncoder.encode(hadoopVersion.trim(), "UTF-8")));
         } catch (MalformedURLException | UnsupportedEncodingException e) {
             log.error("invalid url", e);
             return false;
         }
 
+        long startTimeNs = System.nanoTime();
         try {
-            URLConnection conn = queryJarUrl.openConnection();
+            HttpURLConnection conn = (HttpURLConnection) queryJarUrl.openConnection();
+            conn.setRequestProperty("Connection", "Keep-Alive");
             conn.connect();
 
             BufferedInputStream bis = new BufferedInputStream(conn.getInputStream());
@@ -100,12 +102,12 @@ class CHDFSHadoopFileSystemJarLoader {
             } else {
                 this.jarMd5 = jarInfoJson.get("JarMd5").getAsString();
             }
-
-            return true;
+            log.info("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
         } catch (IOException e) {
             log.error("queryJarPluginInfo occur an io exception", e);
             return false;
         }
+        return true;
     }
 
 
@@ -140,7 +142,7 @@ class CHDFSHadoopFileSystemJarLoader {
             log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
             return null;
         }
-        while(true) {
+        while (true) {
             try {
                 fileLock = fos.getChannel().lock();
                 break;
@@ -225,11 +227,13 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    synchronized boolean init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath) {
+    synchronized boolean init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath, boolean jarPluginServerHttps) {
         if (actualFileSystem == null) {
-            if (!queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort)) {
+            long queryStartMs = System.currentTimeMillis();
+            if (!queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps)) {
                 return false;
             }
+            log.info("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
 
             File jarFile = downloadJarPath(tmpDirPath);
             if (jarFile == null) {
