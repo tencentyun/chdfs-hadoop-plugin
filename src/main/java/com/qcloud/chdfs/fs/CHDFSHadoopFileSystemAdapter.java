@@ -23,7 +23,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.chdfs.meta.server.port";
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.chdfs.meta.transfer.tls";
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
-    private static final int DEFAULT_CHDFS_META_SERVER_PORT = 8080;
+    private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
     private CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
     private FileSystem actualImplFS = null;
