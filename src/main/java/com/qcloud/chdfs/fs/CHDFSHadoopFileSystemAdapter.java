@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
 
-    static final String SCHEME = "chdfs";
+    static final String SCHEME = "ofs";
     private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.myqcloud\\.com$";
     private static final String CHDFS_USER_APPID_KEY = "fs.chdfs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.chdfs.tmp.cache.dir";
