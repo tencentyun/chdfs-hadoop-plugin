@@ -18,10 +18,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
     static final String SCHEME = "ofs";
     private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.myqcloud\\.com$";
-    private static final String CHDFS_USER_APPID_KEY = "fs.chdfs.user.appid";
-    private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.chdfs.tmp.cache.dir";
-    private static final String CHDFS_META_SERVER_PORT_KEY = "fs.chdfs.meta.server.port";
-    private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.chdfs.meta.transfer.tls";
+    private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
+    private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
+    private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
+    private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
