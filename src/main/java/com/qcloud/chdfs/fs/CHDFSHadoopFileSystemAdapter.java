@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
+import java.util.EnumSet;
 import java.util.regex.Pattern;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystem {
@@ -174,11 +175,25 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.open(f, bufferSize);
         } catch (IOException ioe) {
-            log.error("open failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("open failed! a unexpected exception occur!", e);
             throw new IOException("open failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @java.lang.Override
+    public FSDataOutputStream createNonRecursive(Path f, FsPermission permission, EnumSet<CreateFlag> flags, int bufferSize, short replication, long blockSize, Progressable progress) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.createNonRecursive(f, permission, flags, bufferSize, replication, blockSize, progress);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("createNonRecursive failed! a unexpected exception occur!", e);
+            throw new IOException("createNonRecursive failed! a unexpected exception occur! " + e.getMessage());
         }
     }
 
@@ -192,7 +207,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
         } catch (IOException ioe) {
-            log.error("create failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("create failed! a unexpected exception occur!", e);
@@ -209,7 +223,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.append(f, bufferSize, progress);
         } catch (IOException ioe) {
-            log.error("append failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("append failed! a unexpected exception occur!", e);
@@ -225,7 +238,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.rename(src, dst);
         } catch (IOException ioe) {
-            log.error("rename failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("rename failed! a unexpected exception occur!", e);
@@ -240,9 +252,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         }
         try {
             return this.actualImplFS.delete(f, recursive);
-
         } catch (IOException ioe) {
-            log.error("delete failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("delete failed! a unexpected exception occur!", e);
@@ -258,7 +268,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.listStatus(f);
         } catch (IOException ioe) {
-            log.error("listStatus failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("listStatus failed! a unexpected exception occur!", e);
@@ -290,7 +299,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             return this.actualImplFS.mkdirs(f, permission);
         } catch (IOException ioe) {
-            log.error("mkdir failed! a unexpected exception occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("mkdir failed! a unexpected exception occur!", e);
@@ -305,10 +313,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         }
         try {
             return this.actualImplFS.getFileStatus(f);
-        } catch (FileNotFoundException fe) {
-            throw fe;
         } catch (IOException ioe) {
-            log.error("getFileStatus failed! a ioException occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("getFileStatus failed! a unexpected exception occur!", e);
@@ -324,7 +329,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             this.actualImplFS.setPermission(p, permission);
         } catch (IOException ioe) {
-            log.error("setPermission failed! a ioException occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("setPermission failed! a unexpected exception occur!", e);
@@ -340,7 +344,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             this.actualImplFS.setOwner(p, username, groupname);
         } catch (IOException ioe) {
-            log.error("setOwner failed! a ioException occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("setOwner failed! a unexpected exception occur!", e);
@@ -356,7 +359,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             this.actualImplFS.setTimes(p, mtime, atime);
         } catch (IOException ioe) {
-            log.error("setTimes failed! a ioException occur!", ioe);
             throw ioe;
         } catch (Exception e) {
             log.error("setTimes failed! a unexpected exception occur!", e);
