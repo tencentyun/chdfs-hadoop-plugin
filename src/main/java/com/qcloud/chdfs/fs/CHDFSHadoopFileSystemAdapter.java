@@ -2,7 +2,10 @@ package com.qcloud.chdfs.fs;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
+import org.apache.hadoop.fs.permission.AclEntry;
+import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.util.Progressable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +15,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystem {
@@ -120,6 +125,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         log.info("start-init-start time: {}", initStartMs);
         try {
             super.initialize(name, conf);
+            this.setConf(conf);
 
             String mountPointAddr = name.getHost();
             if (mountPointAddr == null || !isValidMountPointAddr(mountPointAddr)) {
@@ -227,6 +233,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         } catch (Exception e) {
             log.error("append failed! a unexpected exception occur!", e);
             throw new IOException("append failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean truncate(Path f, long newLength) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.truncate(f, newLength);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("truncate failed! a unexpected exception occur!", e);
+            throw new IOException("truncate failed! a unexpected exception occur! " + e.getMessage());
         }
     }
 
@@ -363,6 +384,269 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         } catch (Exception e) {
             log.error("setTimes failed! a unexpected exception occur!", e);
             throw new IOException("setTimes failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void setXAttr(Path path, String name, byte[] value, EnumSet<XAttrSetFlag> flag) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.setXAttr(path, name, value, flag);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("setXAttr failed! a unexpected exception occur!", e);
+            throw new IOException("setXAttr failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public byte[] getXAttr(Path path, String name) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getXAttr(path, name);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getXAttr failed! a unexpected exception occur!", e);
+            throw new IOException("getXAttr failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Map<String, byte[]> getXAttrs(Path path) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getXAttrs(path);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getXAttrs failed! a unexpected exception occur!", e);
+            throw new IOException("getXAttrs failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Map<String, byte[]> getXAttrs(Path path, List<String> names) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getXAttrs(path, names);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getXAttrs failed! a unexpected exception occur!", e);
+            throw new IOException("getXAttrs failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public List<String> listXAttrs(Path path) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.listXAttrs(path);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("listXAttrs failed! a unexpected exception occur!", e);
+            throw new IOException("listXAttrs failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removeXAttr(Path path, String name) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.removeXAttr(path, name);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("removeXAttr failed! a unexpected exception occur!", e);
+            throw new IOException("removeXAttr failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Path createSnapshot(Path path, String snapshotName) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.createSnapshot(path, snapshotName);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("createSnapshot failed! a unexpected exception occur!", e);
+            throw new IOException("createSnapshot failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void renameSnapshot(Path path, String snapshotOldName, String snapshotNewName) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.renameSnapshot(path, snapshotOldName, snapshotNewName);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("renameSnapshot failed! a unexpected exception occur!", e);
+            throw new IOException("renameSnapshot failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void deleteSnapshot(Path path, String snapshotName) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.deleteSnapshot(path, snapshotName);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("deleteSnapshot failed! a unexpected exception occur!", e);
+            throw new IOException("deleteSnapshot failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void createSymlink(Path target, Path link, boolean createParent) throws AccessControlException, FileAlreadyExistsException, FileNotFoundException, ParentNotDirectoryException, UnsupportedFileSystemException, IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.createSymlink(target, link, createParent);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("createSymlink failed! a unexpected exception occur!", e);
+            throw new IOException("createSymlink failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean supportsSymlinks() {
+        if (this.actualImplFS == null) {
+            return false;
+        }
+        return this.actualImplFS.supportsSymlinks();
+    }
+
+    @Override
+    public Path getLinkTarget(Path f) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getLinkTarget(f);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getLinkTarget failed! a unexpected exception occur!", e);
+            throw new IOException("getLinkTarget failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void modifyAclEntries(Path path, List<AclEntry> aclSpec) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.modifyAclEntries(path, aclSpec);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("modifyAclEntries failed! a unexpected exception occur!", e);
+            throw new IOException("modifyAclEntries failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removeAclEntries(Path path, List<AclEntry> aclSpec) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.removeAclEntries(path, aclSpec);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("removeAclEntries failed! a unexpected exception occur!", e);
+            throw new IOException("removeAclEntries failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removeDefaultAcl(Path path) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.removeDefaultAcl(path);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("removeDefaultAcl failed! a unexpected exception occur!", e);
+            throw new IOException("removeDefaultAcl failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void removeAcl(Path path) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.removeAcl(path);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("removeAcl failed! a unexpected exception occur!", e);
+            throw new IOException("removeAcl failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void setAcl(Path path, List<AclEntry> aclSpec) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.setAcl(path, aclSpec);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("setAcl failed! a unexpected exception occur!", e);
+            throw new IOException("setAcl failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public AclStatus getAclStatus(Path path) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getAclStatus(path);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getAclStatus failed! a unexpected exception occur!", e);
+            throw new IOException("getAclStatus failed! a unexpected exception occur! " + e.getMessage());
         }
     }
 
