@@ -651,6 +651,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     }
 
     @Override
+    public void concat(Path trg, Path[] psrcs) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.concat(trg, psrcs);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("concat failed! a unexpected exception occur!", e);
+            throw new IOException("concat failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
     public void close() throws IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
