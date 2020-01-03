@@ -127,6 +127,7 @@ class CHDFSHadoopFileSystemJarLoader {
 
     private File downloadJarPath(String tmpDirPath) {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
+        File localCacheJarLockFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar.LOCK", tmpDirPath, versionId));
         if (localCacheJarFile.exists()) {
             String md5Hex = getFileHexMd5(localCacheJarFile);
             if (md5Hex != null && md5Hex.equalsIgnoreCase(jarMd5)) {
@@ -134,33 +135,33 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
 
-        FileOutputStream fos = null;
+        FileOutputStream fileLockOutPut = null;
         FileLock fileLock = null;
         try {
-            fos = new FileOutputStream(localCacheJarFile);
+            fileLockOutPut = new FileOutputStream(localCacheJarLockFile);
         } catch (IOException e) {
-            log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
+            log.error(String.format("download jar failed, open lock file failed, lockPath: %s", localCacheJarLockFile.getAbsolutePath()), e);
             return null;
         }
         while (true) {
             try {
-                fileLock = fos.getChannel().lock();
+                fileLock = fileLockOutPut.getChannel().lock();
                 break;
             } catch (OverlappingFileLockException ofle) {
                 try {
                     Thread.sleep(10L);
                 } catch (InterruptedException e) {
-                    log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
+                    log.error(String.format("download jar failed, lock file failed, lockPath: %s", localCacheJarLockFile.getAbsolutePath()), e);
                     try {
-                        fos.close();
+                        fileLockOutPut.close();
                     } catch (IOException ignore) {
                     }
                     return null;
                 }
             } catch (IOException e) {
-                log.error(String.format("download jar failed, localJarPath: %s", localCacheJarFile.getAbsolutePath()), e);
+                log.error(String.format("download jar failed, lock file failed, lockPath: %s", localCacheJarLockFile.getAbsolutePath()), e);
                 try {
-                    fos.close();
+                    fileLockOutPut.close();
                 } catch (IOException ignore) {
                 }
                 return null;
@@ -168,7 +169,9 @@ class CHDFSHadoopFileSystemJarLoader {
         }
 
         BufferedInputStream bis = null;
+        BufferedOutputStream fos = null;
         try {
+
             // judge again may be other process has download the jar
             if (localCacheJarFile.exists()) {
                 String md5Hex = getFileHexMd5(localCacheJarFile);
@@ -188,11 +191,16 @@ class CHDFSHadoopFileSystemJarLoader {
                 URLConnection conn = downloadJarUrl.openConnection();
                 conn.connect();
                 bis = new BufferedInputStream(conn.getInputStream());
+                fos = new BufferedOutputStream(new FileOutputStream(localCacheJarFile));
                 IOUtils.copyBytes(bis, fos, 4096, true);
-                bis.close();
                 bis = null;
+                fos = null;
+                fileLock.release();
+                fileLock = null;
 
-                fos.flush();
+                fileLockOutPut.close();
+                fileLockOutPut = null;
+
                 String md5Hex = getFileHexMd5(localCacheJarFile);
                 if (md5Hex == null) {
                     log.error("get jar file md5 failed, localJarPath: {}", localCacheJarFile.getAbsolutePath());
@@ -208,19 +216,30 @@ class CHDFSHadoopFileSystemJarLoader {
                 return null;
             }
         } finally {
-            try {
-                fileLock.release();
-            } catch (IOException ignored) {
+            if (fileLock != null) {
+                try {
+                    fileLock.release();
+                } catch (IOException ignored) {
+                }
             }
 
-            try {
-                fos.close();
-            } catch (IOException ignored) {
+            if (fileLockOutPut != null) {
+                try {
+                    fileLockOutPut.close();
+                } catch (IOException ignored) {
+                }
             }
 
             if (bis != null) {
                 try {
                     bis.close();
+                } catch (IOException ignored) {
+                }
+            }
+
+            if (fos != null) {
+                try {
+                    fos.close();
                 } catch (IOException ignored) {
                 }
             }
