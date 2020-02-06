@@ -24,9 +24,30 @@ class CHDFSHadoopFileSystemJarLoader {
 
     private FileSystem actualFileSystem;
 
+    private String chdfsDataTransferEndpointSuffix;
 
     CHDFSHadoopFileSystemJarLoader() {
+    }
 
+    public CHDFSHadoopFileSystemJarLoader(String jarPath) {
+        this.jarPath = jarPath;
+    }
+
+    public String getJarPath() {
+        return jarPath;
+    }
+
+    void modifyJarPathAccordToEndpointSuffix() {
+        if (jarPath == null || chdfsDataTransferEndpointSuffix == null || chdfsDataTransferEndpointSuffix.isEmpty()) {
+            return;
+        }
+        if (!chdfsDataTransferEndpointSuffix.startsWith(".")) {
+            chdfsDataTransferEndpointSuffix = "." + chdfsDataTransferEndpointSuffix;
+        }
+        jarPath = jarPath.substring(0, jarPath.indexOf(".")) + chdfsDataTransferEndpointSuffix;
+        if (jarPath.startsWith("https://")) {
+            jarPath = jarPath.replace("https://", "http://");
+        }
     }
 
     private boolean queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort, boolean jarPluginServerHttpsFlag) {
@@ -283,5 +304,9 @@ class CHDFSHadoopFileSystemJarLoader {
 
     FileSystem getActualFileSystem() {
         return actualFileSystem;
+    }
+
+    public void setChdfsDataTransferEndpointSuffix(String chdfsDataTransferEndpointSuffix) {
+        this.chdfsDataTransferEndpointSuffix = chdfsDataTransferEndpointSuffix;
     }
 }
