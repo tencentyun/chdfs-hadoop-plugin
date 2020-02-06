@@ -5,7 +5,7 @@
 
     <groupId>com.qcloud</groupId>
     <artifactId>chdfs_hadoop_plugin_network</artifactId>
-    <version>1.6</version>
+    <version>1.7</version>
     <packaging>jar</packaging>
 
     <name>chdfs_hadoop_plugin_network</name>
@@ -24,6 +24,13 @@
             <artifactId>hadoop-common</artifactId>
             <version>${hadoop.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

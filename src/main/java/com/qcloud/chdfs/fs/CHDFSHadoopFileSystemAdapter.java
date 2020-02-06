@@ -23,7 +23,8 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
 
     static final String SCHEME = "ofs";
-    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.myqcloud\\.com$";
+    public static final String CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY = "fs.ofs.data.transfer.endpoint.suffix";
+    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
@@ -42,8 +43,12 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         return CHDFSHadoopFileSystemAdapter.SCHEME;
     }
 
-    private boolean isValidMountPointAddr(String mountPointAddr) {
+    boolean isValidMountPointAddr(String mountPointAddr) {
         return Pattern.matches(MOUNT_POINT_ADDR_PATTERN, mountPointAddr);
+    }
+
+    private String initChdfsDataTransferEndpointSuffix(Configuration conf) {
+        return conf.get(CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY);
     }
 
     private String initCacheTmpDir(Configuration conf) throws IOException {
@@ -138,6 +143,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             int jarPluginServerPort = getJarPluginServerPort(conf);
             boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
             String tmpDirPath = initCacheTmpDir(conf);
+            jarLoader.setChdfsDataTransferEndpointSuffix(initChdfsDataTransferEndpointSuffix(conf));
             long initJarStartMs = System.currentTimeMillis();
             if (!jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag)) {
                 String errMsg = "init chdfs impl failed";
