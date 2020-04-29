@@ -179,6 +179,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         return this.uri;
     }
 
+    @Override
+    public FileChecksum getFileChecksum(Path f, long length) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getFileChecksum(f, length);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getFileChecksum failed! a unexpected exception occur!", e);
+            throw new IOException("getFileChecksum failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
     @java.lang.Override
     public FSDataInputStream open(Path f, int bufferSize) throws IOException {
         if (this.actualImplFS == null) {
