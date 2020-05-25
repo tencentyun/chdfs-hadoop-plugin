@@ -23,6 +23,7 @@ class CHDFSHadoopFileSystemJarLoader {
     private String jarMd5;
 
     private FileSystem actualFileSystem;
+    private static AlreadyLoadedFileSystemInfo alreadyLoadedFileSystemInfo;
 
     private String chdfsDataTransferEndpointSuffix;
 
@@ -132,7 +133,68 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
 
-    private String getFileHexMd5(File inFile) {
+
+
+    synchronized boolean init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath, boolean jarPluginServerHttps) {
+        if (this.actualFileSystem == null) {
+            long queryStartMs = System.currentTimeMillis();
+            if (!queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps)) {
+                return false;
+            }
+            log.info("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
+            this.actualFileSystem = getAlreadyLoadedClassInfo(this.jarPath, this.versionId, this.jarMd5, tmpDirPath);
+            if (this.actualFileSystem == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    FileSystem getActualFileSystem() {
+        return actualFileSystem;
+    }
+
+    public void setChdfsDataTransferEndpointSuffix(String chdfsDataTransferEndpointSuffix) {
+        this.chdfsDataTransferEndpointSuffix = chdfsDataTransferEndpointSuffix;
+    }
+
+    private static synchronized FileSystem getAlreadyLoadedClassInfo(String jarPath, String versionId, String jarMd5, String tmpDirPath) {
+        if (alreadyLoadedFileSystemInfo != null
+                && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
+                && alreadyLoadedFileSystemInfo.versionId.equals(versionId)
+                && alreadyLoadedFileSystemInfo.jarMd5.equals(jarMd5)
+        ) {
+            return alreadyLoadedFileSystemInfo.actualFileSystem;
+        }
+
+        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath);
+        if (jarFile == null) {
+            log.error("download jar file failed");
+            return null;
+        }
+        URL jarUrl = null;
+        try {
+            jarUrl = jarFile.toURI().toURL();
+        } catch (MalformedURLException e) {
+            log.error("get jar url failed.", e);
+            return null;
+        }
+        URLClassLoader chdfsJarClassLoader = new URLClassLoader(new URL[]{jarUrl},
+                ClassLoader.getSystemClassLoader());
+        final String className = String.format(
+                "chdfs.%s.com.qcloud.chdfs.fs.CHDFSHadoopFileSystem", versionId);
+        try {
+            Class chdfsFSClass = chdfsJarClassLoader.loadClass(className);
+            FileSystem actualFileSystem = (FileSystem) chdfsFSClass.newInstance();
+            alreadyLoadedFileSystemInfo = new AlreadyLoadedFileSystemInfo(versionId, jarPath, jarMd5, actualFileSystem);
+            return actualFileSystem;
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+            log.error("load class failed", e);
+            return null;
+        }
+    }
+
+    private static String getFileHexMd5(File inFile) {
         FileInputStream in = null;
         try {
             in = new FileInputStream(inFile);
@@ -146,7 +208,7 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    private File downloadJarPath(String tmpDirPath) {
+    private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath) {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
         File localCacheJarLockFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar.LOCK", tmpDirPath, versionId));
         if (localCacheJarFile.exists()) {
@@ -267,46 +329,4 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    synchronized boolean init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath, boolean jarPluginServerHttps) {
-        if (actualFileSystem == null) {
-            long queryStartMs = System.currentTimeMillis();
-            if (!queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps)) {
-                return false;
-            }
-            log.info("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
-
-            File jarFile = downloadJarPath(tmpDirPath);
-            if (jarFile == null) {
-                log.error("download jar file failed");
-                return false;
-            }
-            URL jarUrl = null;
-            try {
-                jarUrl = jarFile.toURI().toURL();
-            } catch (MalformedURLException e) {
-                log.error("get jar url failed.", e);
-                return false;
-            }
-            URLClassLoader chdfsJarClassLoader = new URLClassLoader(new URL[]{jarUrl},
-                    Thread.currentThread().getContextClassLoader());
-            final String className = String.format(
-                    "chdfs.%s.com.qcloud.chdfs.fs.CHDFSHadoopFileSystem", versionId);
-            try {
-                Class chdfsFSClass = chdfsJarClassLoader.loadClass(className);
-                this.actualFileSystem = (FileSystem) chdfsFSClass.newInstance();
-            } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
-                log.error("load class failed", e);
-                return false;
-            }
-        }
-        return true;
-    }
-
-    FileSystem getActualFileSystem() {
-        return actualFileSystem;
-    }
-
-    public void setChdfsDataTransferEndpointSuffix(String chdfsDataTransferEndpointSuffix) {
-        this.chdfsDataTransferEndpointSuffix = chdfsDataTransferEndpointSuffix;
-    }
 }
