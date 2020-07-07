@@ -124,7 +124,7 @@ class CHDFSHadoopFileSystemJarLoader {
             } else {
                 this.jarMd5 = jarInfoJson.get("JarMd5").getAsString();
             }
-            log.info("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
+            log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
         } catch (IOException e) {
             log.error("queryJarPluginInfo occur an io exception", e);
             return false;
@@ -141,7 +141,7 @@ class CHDFSHadoopFileSystemJarLoader {
             if (!queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps)) {
                 return false;
             }
-            log.info("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
+            log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
             this.actualFileSystem = getAlreadyLoadedClassInfo(this.jarPath, this.versionId, this.jarMd5, tmpDirPath);
             if (this.actualFileSystem == null) {
                 return false;
