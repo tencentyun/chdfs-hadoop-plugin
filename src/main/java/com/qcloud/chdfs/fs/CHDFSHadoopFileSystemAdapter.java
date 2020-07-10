@@ -24,7 +24,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
     static final String SCHEME = "ofs";
     public static final String CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY = "fs.ofs.data.transfer.endpoint.suffix";
-    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
+    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(-dualstack)?(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
