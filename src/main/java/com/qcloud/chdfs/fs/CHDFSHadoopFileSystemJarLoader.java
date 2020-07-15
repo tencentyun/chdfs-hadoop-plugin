@@ -142,7 +142,7 @@ class CHDFSHadoopFileSystemJarLoader {
                 return false;
             }
             log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
-            this.actualFileSystem = getAlreadyLoadedClassInfo(this.jarPath, this.versionId, this.jarMd5, tmpDirPath);
+            this.actualFileSystem = getAlreadyLoadedClassInfo(this.getClass().getClassLoader(), this.jarPath, this.versionId, this.jarMd5, tmpDirPath);
             if (this.actualFileSystem == null) {
                 return false;
             }
@@ -158,7 +158,7 @@ class CHDFSHadoopFileSystemJarLoader {
         this.chdfsDataTransferEndpointSuffix = chdfsDataTransferEndpointSuffix;
     }
 
-    private static synchronized FileSystem getAlreadyLoadedClassInfo(String jarPath, String versionId, String jarMd5, String tmpDirPath) {
+    private static synchronized FileSystem getAlreadyLoadedClassInfo(ClassLoader currentClassLoader, String jarPath, String versionId, String jarMd5, String tmpDirPath) {
         if (alreadyLoadedFileSystemInfo != null
                 && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId)
@@ -179,8 +179,7 @@ class CHDFSHadoopFileSystemJarLoader {
             log.error("get jar url failed.", e);
             return null;
         }
-        URLClassLoader chdfsJarClassLoader = new URLClassLoader(new URL[]{jarUrl},
-                ClassLoader.getSystemClassLoader());
+        URLClassLoader chdfsJarClassLoader = new URLClassLoader(new URL[]{jarUrl}, currentClassLoader);
         final String className = String.format(
                 "chdfs.%s.com.qcloud.chdfs.fs.CHDFSHadoopFileSystem", versionId);
         try {
