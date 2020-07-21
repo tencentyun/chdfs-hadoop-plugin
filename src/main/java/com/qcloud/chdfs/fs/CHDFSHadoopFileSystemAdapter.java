@@ -24,7 +24,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
     static final String SCHEME = "ofs";
     public static final String CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY = "fs.ofs.data.transfer.endpoint.suffix";
-    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
+    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(-dualstack)?(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
@@ -126,8 +126,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
+        log.debug("adapter initialize");
         this.initStartMs = System.currentTimeMillis();
-        log.info("start-init-start time: {}", initStartMs);
+        log.debug("start-init-start time: {}", initStartMs);
         try {
             super.initialize(name, conf);
             this.setConf(conf);
@@ -150,7 +151,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
-            log.info("init jar, [elapse-ms: {}]", System.currentTimeMillis() - initJarStartMs);
+            log.debug("init jar, [elapse-ms: {}]", System.currentTimeMillis() - initJarStartMs);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -160,7 +161,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
 
             long actualInitStartMs = System.currentTimeMillis();
             this.actualImplFS.initialize(name, conf);
-            log.info("init actual file system, [elapse-ms: {}]", System.currentTimeMillis() - actualInitStartMs);
+            log.debug("init actual file system, [elapse-ms: {}]", System.currentTimeMillis() - actualInitStartMs);
             this.uri = this.actualImplFS.getUri();
             this.workingDir = this.actualImplFS.getWorkingDirectory();
         } catch (IOException ioe) {
@@ -170,7 +171,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             log.error("initialize failed! a unexpected exception occur!", e);
             throw new IOException("initialize failed! oops! a unexpected exception occur! " + e.toString(), e);
         }
-        log.info("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
+        log.debug("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
     }
 
 
@@ -694,7 +695,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         try {
             long actualCloseStartTimeMs = System.currentTimeMillis();
             this.actualImplFS.close();
-            log.info("actual-file-system-close usedTime: {}", System.currentTimeMillis() - actualCloseStartTimeMs);
+            log.debug("actual-file-system-close usedTime: {}", System.currentTimeMillis() - actualCloseStartTimeMs);
             super.close();
         } catch (IOException ioe) {
             log.error("close fileSystem occur a ioException!", ioe);
@@ -704,6 +705,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
             throw new IOException("close fileSystem failed! a unexpected exception occur! " + e.getMessage());
         }
         long endMs = System.currentTimeMillis();
-        log.info("end-close time: {}, total-used-time: {}", endMs, endMs - initStartMs);
+        log.debug("end-close time: {}, total-used-time: {}", endMs, endMs - initStartMs);
     }
 }
