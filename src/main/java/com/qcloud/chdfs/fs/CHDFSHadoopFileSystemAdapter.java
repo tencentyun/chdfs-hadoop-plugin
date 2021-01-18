@@ -6,6 +6,7 @@ import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,7 +123,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private boolean isJarPluginServerHttps(Configuration conf) {
         return conf.getBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, DEFAULT_CHDFS_META_TRANSFER_USE_TLS);
     }
-
 
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
@@ -684,6 +684,45 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         } catch (Exception e) {
             log.error("concat failed! a unexpected exception occur!", e);
             throw new IOException("concat failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Token<?> getDelegationToken(String renewer) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getDelegationToken(renewer);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getDelegationToken failed! a unexpected exception occur!", e);
+            throw new IOException("getDelegationToken failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public String getCanonicalServiceName() {
+        if (this.actualImplFS == null) {
+            return null;
+        } else {
+            return this.actualImplFS.getCanonicalServiceName();
+        }
+    }
+
+    @Override
+    public ContentSummary getContentSummary(Path f) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.getContentSummary(f);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("getContentSummary failed! a unexpected exception occur!", e);
+            throw new IOException("getContentSummary failed! a unexpected exception occur! " + e.getMessage());
         }
     }
 

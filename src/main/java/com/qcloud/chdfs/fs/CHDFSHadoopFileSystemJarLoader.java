@@ -133,8 +133,6 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
 
-
-
     synchronized boolean init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath, boolean jarPluginServerHttps) {
         if (this.actualFileSystem == null) {
             long queryStartMs = System.currentTimeMillis();
