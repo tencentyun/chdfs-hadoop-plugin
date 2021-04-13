@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-public class CHDFSHadoopFileSystemAdapter extends FileSystem {
+public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
 
     static final String SCHEME = "ofs";
@@ -34,7 +34,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
     private CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
-    private FileSystem actualImplFS = null;
+    private FileSystemWithLockCleaner actualImplFS = null;
     private URI uri = null;
     private Path workingDir = null;
     private long initStartMs;
@@ -332,6 +332,14 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
     @java.lang.Override
     public Path getWorkingDirectory() {
         return this.workingDir;
+    }
+
+    @Override
+    public Path getHomeDirectory() {
+        if (this.actualImplFS == null) {
+            return super.getHomeDirectory();
+        }
+        return this.actualImplFS.getHomeDirectory();
     }
 
     @java.lang.Override
@@ -723,6 +731,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystem {
         } catch (Exception e) {
             log.error("getContentSummary failed! a unexpected exception occur!", e);
             throw new IOException("getContentSummary failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void releaseFileLock(Path p) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            this.actualImplFS.releaseFileLock(p);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("releaseFileLock failed! a unexpected exception occur!", e);
+            throw new IOException("releaseFileLock failed! a unexpected exception occur! " + e.getMessage());
         }
     }
 

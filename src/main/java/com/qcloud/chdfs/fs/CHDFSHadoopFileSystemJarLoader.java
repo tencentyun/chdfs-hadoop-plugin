@@ -22,7 +22,7 @@ class CHDFSHadoopFileSystemJarLoader {
     private String jarPath;
     private String jarMd5;
 
-    private FileSystem actualFileSystem;
+    private FileSystemWithLockCleaner actualFileSystem;
     private static AlreadyLoadedFileSystemInfo alreadyLoadedFileSystemInfo;
 
     private String chdfsDataTransferEndpointSuffix;
@@ -70,8 +70,8 @@ class CHDFSHadoopFileSystemJarLoader {
         try {
             HttpURLConnection conn = (HttpURLConnection) queryJarUrl.openConnection();
             conn.setRequestProperty("Connection", "Keep-Alive");
+            conn.setReadTimeout(120000);
             conn.connect();
-
             BufferedInputStream bis = new BufferedInputStream(conn.getInputStream());
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
@@ -148,7 +148,7 @@ class CHDFSHadoopFileSystemJarLoader {
         return true;
     }
 
-    FileSystem getActualFileSystem() {
+    FileSystemWithLockCleaner getActualFileSystem() {
         return actualFileSystem;
     }
 
@@ -156,7 +156,8 @@ class CHDFSHadoopFileSystemJarLoader {
         this.chdfsDataTransferEndpointSuffix = chdfsDataTransferEndpointSuffix;
     }
 
-    private static synchronized FileSystem getAlreadyLoadedClassInfo(ClassLoader currentClassLoader, String jarPath, String versionId, String jarMd5, String tmpDirPath) {
+    private static synchronized FileSystemWithLockCleaner getAlreadyLoadedClassInfo(ClassLoader currentClassLoader, String jarPath,
+            String versionId, String jarMd5, String tmpDirPath) {
         if (alreadyLoadedFileSystemInfo != null
                 && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId)
@@ -182,7 +183,7 @@ class CHDFSHadoopFileSystemJarLoader {
                 "chdfs.%s.com.qcloud.chdfs.fs.CHDFSHadoopFileSystem", versionId);
         try {
             Class chdfsFSClass = chdfsJarClassLoader.loadClass(className);
-            FileSystem actualFileSystem = (FileSystem) chdfsFSClass.newInstance();
+            FileSystemWithLockCleaner actualFileSystem = (FileSystemWithLockCleaner) chdfsFSClass.newInstance();
             alreadyLoadedFileSystemInfo = new AlreadyLoadedFileSystemInfo(versionId, jarPath, jarMd5, actualFileSystem);
             return actualFileSystem;
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
@@ -325,5 +326,4 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
     }
-
 }
