@@ -304,6 +304,30 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @java.lang.Override
+    public boolean deleteOnExit(Path f) throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        try {
+            return this.actualImplFS.deleteOnExit(f);
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            log.error("deleteOnExit failed! a unexpected exception occur!", e);
+            throw new IOException("deleteOnExit failed! a unexpected exception occur! " + e.getMessage());
+        }
+    }
+
+    @java.lang.Override
+    public boolean cancelDeleteOnExit(Path f) {
+        if (this.actualImplFS == null) {
+            throw new RuntimeException("please init the fileSystem first!");
+        }
+        return this.actualImplFS.cancelDeleteOnExit(f);
+    }
+
+
+    @java.lang.Override
     public FileStatus[] listStatus(Path f) throws FileNotFoundException, IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
@@ -749,16 +773,19 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         }
     }
 
+
+
+
     @Override
     public void close() throws IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
         try {
+            super.close();
             long actualCloseStartTimeMs = System.currentTimeMillis();
             this.actualImplFS.close();
             log.debug("actual-file-system-close usedTime: {}", System.currentTimeMillis() - actualCloseStartTimeMs);
-            super.close();
         } catch (IOException ioe) {
             log.error("close fileSystem occur a ioException!", ioe);
             throw ioe;
