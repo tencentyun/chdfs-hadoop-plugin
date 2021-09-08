@@ -10,8 +10,7 @@ import java.net.URISyntaxException;
 public class CHDFSDelegateFSAdapter extends DelegateToFileSystem {
 
     public CHDFSDelegateFSAdapter(URI theUri, Configuration conf) throws IOException, URISyntaxException {
-        super(theUri, new CHDFSHadoopFileSystemAdapter(), conf, CHDFSHadoopFileSystemAdapter.SCHEME,
-                false);
+        super(theUri, new CHDFSHadoopFileSystemAdapter(), conf, CHDFSHadoopFileSystemAdapter.SCHEME, false);
     }
 
     @Override
