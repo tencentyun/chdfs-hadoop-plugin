@@ -1,11 +1,22 @@
 package com.qcloud.chdfs.fs;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.*;
+import org.apache.hadoop.fs.ContentSummary;
+import org.apache.hadoop.fs.CreateFlag;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileAlreadyExistsException;
+import org.apache.hadoop.fs.FileChecksum;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.ParentNotDirectoryException;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.UnsupportedFileSystemException;
+import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
 import org.slf4j.Logger;
@@ -18,14 +29,14 @@ import java.net.URI;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
-    private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
-
     static final String SCHEME = "ofs";
-    public static final String CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY = "fs.ofs.data.transfer.endpoint.suffix";
-    private static final String MOUNT_POINT_ADDR_PATTERN = "^([a-zA-Z0-9-]+)\\.chdfs(-dualstack)?(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
+    private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
+    private static final String MOUNT_POINT_ADDR_PATTERN =
+            "^([a-zA-Z0-9-]+)\\.chdfs(-dualstack)?(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
@@ -33,7 +44,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
-    private CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
+    private final CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
     private FileSystemWithLockCleaner actualImplFS = null;
     private URI uri = null;
     private Path workingDir = null;
@@ -44,114 +55,41 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         return CHDFSHadoopFileSystemAdapter.SCHEME;
     }
 
-    boolean isValidMountPointAddr(String mountPointAddr) {
-        return Pattern.matches(MOUNT_POINT_ADDR_PATTERN, mountPointAddr);
-    }
-
-    private String initChdfsDataTransferEndpointSuffix(Configuration conf) {
-        return conf.get(CHDFS_DATA_TRANSFER_ENDPOINT_SUFFIX_KEY);
-    }
-
-    private String initCacheTmpDir(Configuration conf) throws IOException {
-        String chdfsTmpCacheDirPath = conf.get(CHDFS_TMP_CACHE_DIR_KEY);
-        if (chdfsTmpCacheDirPath == null) {
-            String errMsg = String.format("chdfs config %s is missing",
-                    CHDFS_TMP_CACHE_DIR_KEY);
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
-        if (!chdfsTmpCacheDirPath.startsWith("/")) {
-            String errMsg = String.format("chdfs config [%s: %s] must be absolute path",
-                    CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
-
-        File chdfsTmpCacheDir = new File(chdfsTmpCacheDirPath);
-        if (!chdfsTmpCacheDir.exists()) {
-            // judge exists again, may many map-reduce processes create cache dir parallel
-            if (!chdfsTmpCacheDir.mkdirs() && !chdfsTmpCacheDir.exists()) {
-                String errMsg = String.format("mkdir for chdfs tmp dir %s failed", chdfsTmpCacheDir.getAbsolutePath());
-                log.error(errMsg);
-                throw new IOException(errMsg);
+    private static void initUGI(Configuration conf) throws IOException {
+        if (!UserGroupInformation.isInitialized()) {
+            synchronized (UserGroupInformation.class) {
+                if (!UserGroupInformation.isInitialized()) {
+                    UserGroupInformation.setConfiguration(conf);
+                }
             }
         }
-
-        if (!chdfsTmpCacheDir.isDirectory()) {
-            String errMsg = String.format("chdfs config [%s: %s] is invalid directory", CHDFS_TMP_CACHE_DIR_KEY, chdfsTmpCacheDir.getAbsolutePath());
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
-
-        if (!chdfsTmpCacheDir.canRead()) {
-            String errMsg = String.format("chdfs config [%s: %s] is not readable",
-                    CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
-
-        if (!chdfsTmpCacheDir.canWrite()) {
-            String errMsg = String.format("chdfs config [%s: %s] is not writeable",
-                    CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
-        return chdfsTmpCacheDirPath;
-    }
-
-    private long getAppid(Configuration conf) throws IOException {
-        long appid = 0;
-        try {
-            appid = conf.getLong(CHDFS_USER_APPID_KEY, 0);
-        } catch (NumberFormatException e) {
-            throw new IOException(String.format("config for %s is invalid appid number", CHDFS_USER_APPID_KEY));
-        }
-        if (appid <= 0) {
-            throw new IOException(String.format("config for %s is missing or invalid appid number",
-                    CHDFS_USER_APPID_KEY));
-        }
-        return appid;
-    }
-
-    private int getJarPluginServerPort(Configuration conf) {
-        return conf.getInt(CHDFS_META_SERVER_PORT_KEY, DEFAULT_CHDFS_META_SERVER_PORT);
-    }
-
-    private boolean isJarPluginServerHttps(Configuration conf) {
-        return conf.getBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, DEFAULT_CHDFS_META_TRANSFER_USE_TLS);
     }
 
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
-        log.debug("adapter initialize");
+        initUGI(conf);
+        log.debug("CHDFSHadoopFileSystemAdapter adapter initialize");
         this.initStartMs = System.currentTimeMillis();
-        log.debug("start-init-start time: {}", initStartMs);
+        log.debug("CHDFSHadoopFileSystemAdapter start-init-start time: {}", initStartMs);
         try {
             super.initialize(name, conf);
             this.setConf(conf);
 
             String mountPointAddr = name.getHost();
             if (mountPointAddr == null || !isValidMountPointAddr(mountPointAddr)) {
-                String errMsg = "mountPointAddr is invalid, exp. f4mabcdefgh-xyzw.chdfs.ap-guangzhou.myqcloud.com";
+                String errMsg = String.format("mountPointAddr %s is invalid, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
+                                + ".ap-guangzhou.myqcloud.com", mountPointAddr == null ? "null" : mountPointAddr,
+                        name.toString());
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
 
             long appid = getAppid(conf);
             int jarPluginServerPort = getJarPluginServerPort(conf);
-            boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
             String tmpDirPath = initCacheTmpDir(conf);
-            jarLoader.setChdfsDataTransferEndpointSuffix(initChdfsDataTransferEndpointSuffix(conf));
-            long initJarStartMs = System.currentTimeMillis();
-            if (!jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag)) {
-                String errMsg = "init chdfs impl failed";
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            }
-            log.debug("init jar, [elapse-ms: {}]", System.currentTimeMillis() - initJarStartMs);
+            boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
+
+            initJarLoadWithRetry(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -174,6 +112,105 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         log.debug("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
     }
 
+    boolean isValidMountPointAddr(String mountPointAddr) {
+        return Pattern.matches(MOUNT_POINT_ADDR_PATTERN, mountPointAddr);
+    }
+
+    private long getAppid(Configuration conf) throws IOException {
+        long appid = 0;
+        try {
+            appid = conf.getLong(CHDFS_USER_APPID_KEY, 0);
+        } catch (NumberFormatException e) {
+            throw new IOException(String.format("config for %s is invalid appid number", CHDFS_USER_APPID_KEY));
+        }
+        if (appid <= 0) {
+            throw new IOException(
+                    String.format("config for %s is missing or invalid appid number", CHDFS_USER_APPID_KEY));
+        }
+        return appid;
+    }
+
+    private int getJarPluginServerPort(Configuration conf) {
+        return conf.getInt(CHDFS_META_SERVER_PORT_KEY, DEFAULT_CHDFS_META_SERVER_PORT);
+    }
+
+    private String initCacheTmpDir(Configuration conf) throws IOException {
+        String chdfsTmpCacheDirPath = conf.get(CHDFS_TMP_CACHE_DIR_KEY);
+        if (chdfsTmpCacheDirPath == null) {
+            String errMsg = String.format("chdfs config %s is missing", CHDFS_TMP_CACHE_DIR_KEY);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+        if (!chdfsTmpCacheDirPath.startsWith("/")) {
+            String errMsg = String.format("chdfs config [%s: %s] must be absolute path", CHDFS_TMP_CACHE_DIR_KEY,
+                    chdfsTmpCacheDirPath);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+
+        File chdfsTmpCacheDir = new File(chdfsTmpCacheDirPath);
+        if (!chdfsTmpCacheDir.exists()) {
+            // judge exists again, may many map-reduce processes create cache dir parallel
+            if (!chdfsTmpCacheDir.mkdirs() && !chdfsTmpCacheDir.exists()) {
+                String errMsg = String.format("mkdir for chdfs tmp dir %s failed", chdfsTmpCacheDir.getAbsolutePath());
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            }
+            chdfsTmpCacheDir.setReadable(true, false);
+            chdfsTmpCacheDir.setWritable(true, false);
+            chdfsTmpCacheDir.setExecutable(true, false);
+        }
+
+        if (!chdfsTmpCacheDir.isDirectory()) {
+            String errMsg = String.format("chdfs config [%s: %s] is invalid directory", CHDFS_TMP_CACHE_DIR_KEY,
+                    chdfsTmpCacheDir.getAbsolutePath());
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+
+        if (!chdfsTmpCacheDir.canRead()) {
+            String errMsg = String.format("chdfs config [%s: %s] is not readable", CHDFS_TMP_CACHE_DIR_KEY,
+                    chdfsTmpCacheDirPath);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+
+        if (!chdfsTmpCacheDir.canWrite()) {
+            String errMsg = String.format("chdfs config [%s: %s] is not writeable", CHDFS_TMP_CACHE_DIR_KEY,
+                    chdfsTmpCacheDirPath);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+        return chdfsTmpCacheDirPath;
+    }
+
+    private boolean isJarPluginServerHttps(Configuration conf) {
+        return conf.getBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, DEFAULT_CHDFS_META_TRANSFER_USE_TLS);
+    }
+
+    private void initJarLoadWithRetry(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
+            boolean jarPluginServerHttps) throws IOException {
+        int maxRetry = 5;
+        for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
+            try {
+                jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps);
+                return;
+            } catch (IOException e) {
+                if (retryIndex < maxRetry) {
+                    log.warn(String.format("init chdfs impl failed, we will retry again, retryInfo: %d/%d", retryIndex,
+                            maxRetry), e);
+                } else {
+                    log.error("init chdfs impl failed", e);
+                    throw new IOException("init chdfs impl failed", e);
+                }
+            }
+            try {
+                Thread.sleep(ThreadLocalRandom.current().nextLong(500, 2000));
+            } catch (InterruptedException ignore) {
+                // ignore
+            }
+        }
+    }
 
     @java.lang.Override
     public java.net.URI getUri() {
@@ -211,12 +248,14 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @java.lang.Override
-    public FSDataOutputStream createNonRecursive(Path f, FsPermission permission, EnumSet<CreateFlag> flags, int bufferSize, short replication, long blockSize, Progressable progress) throws IOException {
+    public FSDataOutputStream createNonRecursive(Path f, FsPermission permission, EnumSet<CreateFlag> flags,
+            int bufferSize, short replication, long blockSize, Progressable progress) throws IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
         try {
-            return this.actualImplFS.createNonRecursive(f, permission, flags, bufferSize, replication, blockSize, progress);
+            return this.actualImplFS.createNonRecursive(f, permission, flags, bufferSize, replication, blockSize,
+                    progress);
         } catch (IOException ioe) {
             throw ioe;
         } catch (Exception e) {
@@ -226,9 +265,8 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @java.lang.Override
-    public FSDataOutputStream create(Path f, FsPermission permission, boolean overwrite,
-                                     int bufferSize, short replication, long blockSize, Progressable progress)
-            throws IOException {
+    public FSDataOutputStream create(Path f, FsPermission permission, boolean overwrite, int bufferSize,
+            short replication, long blockSize, Progressable progress) throws IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
@@ -243,8 +281,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @java.lang.Override
-    public FSDataOutputStream append(Path f, int bufferSize, Progressable progress)
-            throws IOException {
+    public FSDataOutputStream append(Path f, int bufferSize, Progressable progress) throws IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
@@ -343,6 +380,11 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @java.lang.Override
+    public Path getWorkingDirectory() {
+        return this.workingDir;
+    }
+
+    @java.lang.Override
     public void setWorkingDirectory(Path new_dir) {
         if (this.actualImplFS == null) {
             this.workingDir = new_dir;
@@ -351,11 +393,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             this.workingDir = new_dir;
             this.actualImplFS.setWorkingDirectory(new_dir);
         }
-    }
-
-    @java.lang.Override
-    public Path getWorkingDirectory() {
-        return this.workingDir;
     }
 
     @Override
@@ -577,7 +614,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     @Override
-    public void createSymlink(Path target, Path link, boolean createParent) throws AccessControlException, FileAlreadyExistsException, FileNotFoundException, ParentNotDirectoryException, UnsupportedFileSystemException, IOException {
+    public void createSymlink(Path target, Path link, boolean createParent)
+            throws AccessControlException, FileAlreadyExistsException, FileNotFoundException,
+                   ParentNotDirectoryException, UnsupportedFileSystemException, IOException {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
@@ -772,8 +811,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             throw new IOException("releaseFileLock failed! a unexpected exception occur! " + e.getMessage());
         }
     }
-
-
 
 
     @Override
