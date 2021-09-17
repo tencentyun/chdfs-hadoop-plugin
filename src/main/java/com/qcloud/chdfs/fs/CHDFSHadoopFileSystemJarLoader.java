@@ -53,6 +53,45 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
+    private void parseJarPluginInfoResp(String respStr) throws IOException {
+        JsonObject respJson = new JsonParser().parse(respStr).getAsJsonObject();
+        if (!respJson.has("Response")) {
+            String errMsg = String.format("resp json miss element Response, resp: %s", respStr);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+
+        if (!respJson.get("Response").getAsJsonObject().has("HadoopPluginJar")) {
+            String errMsg = String.format("resp json miss element Response.HadoopPluginJar, resp: %s", respStr);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+        JsonObject jarInfoJson = respJson.get("Response").getAsJsonObject().get("HadoopPluginJar").getAsJsonObject();
+        if (!jarInfoJson.has("VersionId")) {
+            String errMsg = String.format("resp miss config Response.HadoopPluginJar.VersionId, resp: %s", respStr);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        } else {
+            this.versionId = jarInfoJson.get("VersionId").getAsString();
+        }
+
+        if (!jarInfoJson.has("JarPath")) {
+            String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarPath, resp: %s", respStr);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        } else {
+            this.jarPath = jarInfoJson.get("JarPath").getAsString();
+        }
+
+        if (!jarInfoJson.has("JarMd5")) {
+            String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarMd5, resp: %s", respStr);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        } else {
+            this.jarMd5 = jarInfoJson.get("JarMd5").getAsString();
+        }
+    }
+
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
             boolean jarPluginServerHttpsFlag) throws IOException {
         String hadoopVersion = VersionInfo.getVersion();
@@ -89,48 +128,8 @@ class CHDFSHadoopFileSystemJarLoader {
             while ((readLen = bis.read(buf)) != -1) {
                 bos.write(buf, 0, readLen);
             }
-
             String respStr = bos.toString();
-            JsonObject respJson = new JsonParser().parse(respStr).getAsJsonObject();
-
-            if (!respJson.has("Response")) {
-                String errMsg = String.format("resp json miss element Response, resp: %s", respStr);
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            }
-
-            if (!respJson.get("Response").getAsJsonObject().has("HadoopPluginJar")) {
-                String errMsg = String.format("resp json miss element Response.HadoopPluginJar, resp: %s", respStr);
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            }
-
-            JsonObject jarInfoJson = respJson.get("Response").getAsJsonObject().get("HadoopPluginJar")
-                                             .getAsJsonObject();
-            if (!jarInfoJson.has("VersionId")) {
-                String errMsg = String.format("resp miss config Response.HadoopPluginJar.VersionId, resp: %s", respStr);
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            } else {
-                this.versionId = jarInfoJson.get("VersionId").getAsString();
-            }
-
-            if (!jarInfoJson.has("JarPath")) {
-                String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarPath, resp: %s", respStr);
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            } else {
-                this.jarPath = jarInfoJson.get("JarPath").getAsString();
-            }
-
-            if (!jarInfoJson.has("JarMd5")) {
-                String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarMd5, resp: %s", respStr);
-                log.error(errMsg);
-                throw new IOException(errMsg);
-            } else {
-                this.jarMd5 = jarInfoJson.get("JarMd5").getAsString();
-            }
-            log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
+            parseJarPluginInfoResp(respStr);
         } catch (IOException e) {
             String errMsg = "queryJarPluginInfo occur an io exception";
             log.error(errMsg, e);
@@ -146,6 +145,7 @@ class CHDFSHadoopFileSystemJarLoader {
                 conn.disconnect();
             }
         }
+        log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
     }
 
     private static synchronized FileSystemWithLockCleaner getAlreadyLoadedClassInfo(ClassLoader currentClassLoader,
@@ -284,8 +284,8 @@ class CHDFSHadoopFileSystemJarLoader {
 
             String md5Hex = getFileHexMd5(localCacheJarFile);
             if (!md5Hex.equalsIgnoreCase(jarMd5)) {
-                String errMsg = String.format(
-                        "download jar md5 check failed, local jar md5: %s, query jar md5: %s", md5Hex, jarMd5);
+                String errMsg = String.format("download jar md5 check failed, local jar md5: %s, query jar md5: %s",
+                        md5Hex, jarMd5);
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
