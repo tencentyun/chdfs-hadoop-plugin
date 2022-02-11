@@ -98,6 +98,7 @@ class CHDFSHadoopFileSystemJarLoader {
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
         }
+
         URL queryJarUrl = null;
         String queryJarUrlStr = "";
         try {
@@ -153,7 +154,14 @@ class CHDFSHadoopFileSystemJarLoader {
         if (alreadyLoadedFileSystemInfo != null && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId) && alreadyLoadedFileSystemInfo.jarMd5.equals(
                 jarMd5)) {
-            return alreadyLoadedFileSystemInfo.actualFileSystem;
+            try {
+                return (FileSystemWithLockCleaner) alreadyLoadedFileSystemInfo.chdfsFSClass.newInstance();
+            } catch (InstantiationException | IllegalAccessException e) {
+                String errMsg = String.format("load chdfs class failed, className: %s",
+                        alreadyLoadedFileSystemInfo.chdfsFSClass.getName());
+                log.error(errMsg, e);
+                throw new IOException(errMsg, e);
+            }
         }
 
         File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath);
@@ -170,7 +178,7 @@ class CHDFSHadoopFileSystemJarLoader {
         try {
             Class chdfsFSClass = chdfsJarClassLoader.loadClass(className);
             FileSystemWithLockCleaner actualFileSystem = (FileSystemWithLockCleaner) chdfsFSClass.newInstance();
-            alreadyLoadedFileSystemInfo = new AlreadyLoadedFileSystemInfo(versionId, jarPath, jarMd5, actualFileSystem);
+            alreadyLoadedFileSystemInfo = new AlreadyLoadedFileSystemInfo(versionId, jarPath, jarMd5, chdfsFSClass);
             return actualFileSystem;
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
             String errMsg = String.format("load class failed, className: %s", className);
