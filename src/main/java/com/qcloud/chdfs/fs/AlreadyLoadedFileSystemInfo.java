@@ -4,13 +4,13 @@ public class AlreadyLoadedFileSystemInfo {
     String versionId;
     String jarPath;
     String jarMd5;
-    FileSystemWithLockCleaner actualFileSystem;
+    Class chdfsFSClass;
 
     public AlreadyLoadedFileSystemInfo(String versionId, String jarPath, String jarMd5,
-            FileSystemWithLockCleaner actualFileSystem) {
+            Class chdfsFSClass) {
         this.versionId = versionId;
         this.jarPath = jarPath;
         this.jarMd5 = jarMd5;
-        this.actualFileSystem = actualFileSystem;
+        this.chdfsFSClass = chdfsFSClass;
     }
 }
