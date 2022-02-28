@@ -19,7 +19,6 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
-import org.apache.hadoop.util.hash.Hash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,21 +27,24 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     static final String SCHEME = "ofs";
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
-    private static final String MOUNT_POINT_ADDR_PATTERN =
+    private static final String MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE =
             "^([a-zA-Z0-9-]+)\\.chdfs(-dualstack)?(\\.inner)?\\.([a-z0-9-]+)\\.([a-z0-9-.]+)";
+    private static final String MOUNT_POINT_ADDR_PATTERN_COS_TYPE =
+            "^([a-z0-9-]+)-([a-zA-Z0-9]+)$";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
+    private static final String CHDFS_BUCKET_REGION = "fs.ofs.bucket.region";
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
@@ -66,10 +68,23 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             super.initialize(name, conf);
             this.setConf(conf);
             String mountPointAddr = name.getHost();
-            if (mountPointAddr == null || !isValidMountPointAddr(mountPointAddr)) {
+            if (mountPointAddr == null) {
+                String errMsg = String.format("mountPointAddr is null, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
+                                + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw", name.toString());
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            }
+
+            String ofsHost;
+            if (isValidMountPointAddrChdfsType(mountPointAddr)) {
+                ofsHost = mountPointAddr;
+            } else if (isValidMountPointAddrCosType(mountPointAddr)) {
+                String bucketRegion = getChdfsBucketRegion(conf);
+                ofsHost = String.format("%s.chdfs.%s.myqcloud.com", mountPointAddr, bucketRegion);
+            } else {
                 String errMsg = String.format("mountPointAddr %s is invalid, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
-                                + ".ap-guangzhou.myqcloud.com", mountPointAddr == null ? "null" : mountPointAddr,
-                        name.toString());
+                                + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw",
+                        mountPointAddr, name.toString());
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
@@ -79,7 +94,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             String tmpDirPath = initCacheTmpDir(conf);
             boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
 
-            initJarLoadWithRetry(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag);
+            initJarLoadWithRetry(ofsHost, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -102,8 +117,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         log.debug("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
     }
 
-    boolean isValidMountPointAddr(String mountPointAddr) {
-        return Pattern.matches(MOUNT_POINT_ADDR_PATTERN, mountPointAddr);
+    boolean isValidMountPointAddrChdfsType(String mountPointAddr) {
+        return Pattern.matches(MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE, mountPointAddr);
+    }
+    boolean isValidMountPointAddrCosType(String mountPointAddr) {
+        return Pattern.matches(MOUNT_POINT_ADDR_PATTERN_COS_TYPE, mountPointAddr);
+    }
+
+    private String getChdfsBucketRegion(Configuration conf) throws IOException {
+        String bucketRegion = conf.get(CHDFS_BUCKET_REGION);
+        if (bucketRegion == null) {
+            String errMsg = String.format("ofs config %s is missing", CHDFS_BUCKET_REGION);
+            log.error(errMsg);
+            throw new IOException(errMsg);
+        }
+        return bucketRegion;
     }
 
     private long getAppid(Configuration conf) throws IOException {
