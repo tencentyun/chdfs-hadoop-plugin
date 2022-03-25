@@ -45,6 +45,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
     private static final String CHDFS_BUCKET_REGION = "fs.ofs.bucket.region";
+    private static final String COS_ENDPOINT_SUFFIX = "fs.ofs.data.transfer.endpoint.suffix";
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
@@ -93,8 +94,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             int jarPluginServerPort = getJarPluginServerPort(conf);
             String tmpDirPath = initCacheTmpDir(conf);
             boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
+            String cosEndPointSuffix = getCosEndPointSuffix(conf);
 
-            initJarLoadWithRetry(ofsHost, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag);
+            initJarLoadWithRetry(ofsHost, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag, cosEndPointSuffix);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -122,6 +124,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
     boolean isValidMountPointAddrCosType(String mountPointAddr) {
         return Pattern.matches(MOUNT_POINT_ADDR_PATTERN_COS_TYPE, mountPointAddr);
+    }
+
+    private String getCosEndPointSuffix(Configuration conf ) throws IOException {
+        return conf.get(COS_ENDPOINT_SUFFIX);
     }
 
     private String getChdfsBucketRegion(Configuration conf) throws IOException {
@@ -207,11 +213,11 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     private void initJarLoadWithRetry(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-            boolean jarPluginServerHttps) throws IOException {
+            boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
         int maxRetry = 5;
         for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
             try {
-                jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps);
+                jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps, cosEndPointSuffix);
                 return;
             } catch (IOException e) {
                 if (retryIndex < maxRetry) {

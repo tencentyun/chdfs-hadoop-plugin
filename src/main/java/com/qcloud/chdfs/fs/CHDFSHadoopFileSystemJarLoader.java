@@ -39,10 +39,10 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     synchronized void init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-            boolean jarPluginServerHttps) throws IOException {
+            boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
         if (this.actualFileSystem == null) {
             long queryStartMs = System.currentTimeMillis();
-            queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps);
+            queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps, cosEndPointSuffix);
             log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
             this.actualFileSystem = getAlreadyLoadedClassInfo(this.getClass().getClassLoader(), this.jarPath,
                     this.versionId, this.jarMd5, tmpDirPath);
@@ -53,7 +53,7 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    private void parseJarPluginInfoResp(String respStr) throws IOException {
+    private void parseJarPluginInfoResp(String respStr, String cosEndPointSuffix) throws IOException {
         JsonObject respJson = new JsonParser().parse(respStr).getAsJsonObject();
         if (!respJson.has("Response")) {
             String errMsg = String.format("resp json miss element Response, resp: %s", respStr);
@@ -80,7 +80,25 @@ class CHDFSHadoopFileSystemJarLoader {
             log.error(errMsg);
             throw new IOException(errMsg);
         } else {
-            this.jarPath = jarInfoJson.get("JarPath").getAsString();
+            if (cosEndPointSuffix != null) {
+                String jarPath = jarInfoJson.get("JarPath").getAsString();
+                int dotIndex = jarPath.indexOf('.');
+                if (dotIndex == -1) {
+                    String errMsg = String.format("invalid jar path : %s", jarPath);
+                    log.error(errMsg);
+                    throw new IOException(errMsg);
+                }
+
+                int slashIndex = jarPath.indexOf('/', dotIndex);
+                if (slashIndex == -1) {
+                    String errMsg = String.format("invalid jar path : %s", jarPath);
+                    log.error(errMsg);
+                    throw new IOException(errMsg);
+                }
+                this.jarPath = jarPath.substring(0, dotIndex+1) + cosEndPointSuffix + jarPath.substring(slashIndex);
+            } else {
+                this.jarPath = jarInfoJson.get("JarPath").getAsString();
+            }
         }
 
         if (!jarInfoJson.has("JarMd5")) {
@@ -93,7 +111,7 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
-            boolean jarPluginServerHttpsFlag) throws IOException {
+            boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
         String hadoopVersion = VersionInfo.getVersion();
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
@@ -130,7 +148,7 @@ class CHDFSHadoopFileSystemJarLoader {
                 bos.write(buf, 0, readLen);
             }
             String respStr = bos.toString();
-            parseJarPluginInfoResp(respStr);
+            parseJarPluginInfoResp(respStr, cosEndPointSuffix);
         } catch (IOException e) {
             String errMsg = "queryJarPluginInfo occur an io exception";
             log.error(errMsg, e);
