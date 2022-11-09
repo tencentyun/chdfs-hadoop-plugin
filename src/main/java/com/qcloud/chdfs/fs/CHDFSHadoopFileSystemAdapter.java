@@ -1,5 +1,6 @@
 package com.qcloud.chdfs.fs;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.CreateFlag;
@@ -25,10 +26,12 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,6 +49,8 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
     private static final String CHDFS_BUCKET_REGION = "fs.ofs.bucket.region";
     private static final String COS_ENDPOINT_SUFFIX = "fs.ofs.data.transfer.endpoint.suffix";
+
+    private static final String CHDFS_META_ENDPOINT_SUFFIX_KEY = "fs.ofs.meta.endpoint.suffix";
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
@@ -71,7 +76,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             String mountPointAddr = name.getHost();
             if (mountPointAddr == null) {
                 String errMsg = String.format("mountPointAddr is null, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
-                                + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw", name.toString());
+                        + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw", name.toString());
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
@@ -80,8 +85,15 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             if (isValidMountPointAddrChdfsType(mountPointAddr)) {
                 ofsHost = mountPointAddr;
             } else if (isValidMountPointAddrCosType(mountPointAddr)) {
-                String bucketRegion = getChdfsBucketRegion(conf);
-                ofsHost = String.format("%s.chdfs.%s.myqcloud.com", mountPointAddr, bucketRegion);
+                String metaEndpointSuffix = getMetaEndpointSuffix(conf);
+                if (!metaEndpointSuffix.isEmpty()) {
+                    ofsHost = mountPointAddr + "." + metaEndpointSuffix;
+                    // force close tls
+                    conf.setBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, false);
+                } else {
+                    String bucketRegion = getChdfsBucketRegion(conf);
+                    ofsHost = String.format("%s.chdfs.%s.myqcloud.com", mountPointAddr, bucketRegion);
+                }
             } else {
                 String errMsg = String.format("mountPointAddr %s is invalid, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
                                 + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw",
@@ -89,6 +101,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
+
+            String networkVersionId = initPluginNetworkVersion();
+            conf.set("chdfs.hadoop.plugin.network.version", String.format("network:%s", networkVersionId));
 
             long appid = getAppid(conf);
             int jarPluginServerPort = getJarPluginServerPort(conf);
@@ -122,11 +137,12 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     boolean isValidMountPointAddrChdfsType(String mountPointAddr) {
         return Pattern.matches(MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE, mountPointAddr);
     }
+
     boolean isValidMountPointAddrCosType(String mountPointAddr) {
         return Pattern.matches(MOUNT_POINT_ADDR_PATTERN_COS_TYPE, mountPointAddr);
     }
 
-    private String getCosEndPointSuffix(Configuration conf ) throws IOException {
+    private String getCosEndPointSuffix(Configuration conf) throws IOException {
         return conf.get(COS_ENDPOINT_SUFFIX);
     }
 
@@ -138,6 +154,33 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             throw new IOException(errMsg);
         }
         return bucketRegion;
+    }
+
+    private String getMetaEndpointSuffix(Configuration conf) throws IOException {
+        return initStringValue(conf, CHDFS_META_ENDPOINT_SUFFIX_KEY, "").toLowerCase();
+    }
+
+    private String initStringValue(Configuration conf, String configKey, String defaultValue)
+            throws IOException {
+        String retValue = conf.get(configKey);
+        if (retValue == null) {
+            if (defaultValue == null) {
+                String errMsg = String.format("chdfs config %s missing", configKey);
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            } else {
+                retValue = defaultValue;
+                log.debug("chdfs config {} missing, use default value {}", configKey, defaultValue);
+            }
+        } else {
+            if (retValue.trim().isEmpty()) {
+                String errMsg = String.format("chdfs config %s value %s is invalid, value should not be empty string",
+                        configKey, retValue);
+                log.error(errMsg);
+                throw new IOException(errMsg);
+            }
+        }
+        return retValue.trim();
     }
 
     private long getAppid(Configuration conf) throws IOException {
@@ -213,7 +256,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     }
 
     private void initJarLoadWithRetry(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-            boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
+                                      boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
         int maxRetry = 5;
         for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
             try {
@@ -247,6 +290,29 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         }
     }
 
+    private String initPluginNetworkVersion() {
+        String networkVersionId = "unknown";
+
+        Properties versionProp = new Properties();
+        InputStream in = null;
+        final String versionPropName = "chdfsHadoopPluginNetworkVersionInfo.properties";
+        try {
+            in = this.getClass().getClassLoader().getResourceAsStream(versionPropName);
+            if (in != null) {
+                versionProp.load(in);
+                networkVersionId = versionProp.getProperty("network_version");
+
+            } else {
+                log.error("load versionInfo properties failed, propName: {} ", versionPropName);
+            }
+        } catch (IOException e) {
+            log.error("load versionInfo properties failed", e);
+        } finally {
+            IOUtils.closeQuietly(in);
+        }
+        return networkVersionId;
+    }
+
     @java.lang.Override
     public FSDataInputStream open(Path f, int bufferSize) throws IOException {
         judgeActualFSInitialized();
@@ -255,14 +321,14 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
 
     @java.lang.Override
     public FSDataOutputStream createNonRecursive(Path f, FsPermission permission, EnumSet<CreateFlag> flags,
-            int bufferSize, short replication, long blockSize, Progressable progress) throws IOException {
+                                                 int bufferSize, short replication, long blockSize, Progressable progress) throws IOException {
         judgeActualFSInitialized();
         return this.actualImplFS.createNonRecursive(f, permission, flags, bufferSize, replication, blockSize, progress);
     }
 
     @java.lang.Override
     public FSDataOutputStream create(Path f, FsPermission permission, boolean overwrite, int bufferSize,
-            short replication, long blockSize, Progressable progress) throws IOException {
+                                     short replication, long blockSize, Progressable progress) throws IOException {
         judgeActualFSInitialized();
         return this.actualImplFS.create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
     }
@@ -353,7 +419,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     @Override
     public void createSymlink(Path target, Path link, boolean createParent)
             throws AccessControlException, FileAlreadyExistsException, FileNotFoundException,
-                   ParentNotDirectoryException, UnsupportedFileSystemException, IOException {
+            ParentNotDirectoryException, UnsupportedFileSystemException, IOException {
         judgeActualFSInitialized();
         this.actualImplFS.createSymlink(target, link, createParent);
     }
