@@ -54,6 +54,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
     private static final boolean DEFAULT_CHDFS_META_TRANSFER_USE_TLS = true;
     private static final int DEFAULT_CHDFS_META_SERVER_PORT = 443;
 
+    public static final String CHDFS_DATA_TRANSFER_DISTINGUISH_HOST = "fs.ofs.data.transfer.distinguish.host";
+
+    public static final boolean DEFAULT_CHDFS_DATA_TRANSFER_DISTINGUISH_FLAG = false;
+
     private final CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
     private FileSystemWithLockCleaner actualImplFS = null;
     private URI uri = null;
@@ -110,8 +114,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
             String tmpDirPath = initCacheTmpDir(conf);
             boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
             String cosEndPointSuffix = getCosEndPointSuffix(conf);
-
-            initJarLoadWithRetry(ofsHost, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag, cosEndPointSuffix);
+            boolean distinguishHost = isDistinguishHost(conf);
+            log.debug("fs.ofs.data.transfer.distinguish.host: {}", distinguishHost);
+            initJarLoadWithRetry(ofsHost, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttpsFlag,
+                    cosEndPointSuffix, distinguishHost, networkVersionId);
 
             this.actualImplFS = jarLoader.getActualFileSystem();
             if (this.actualImplFS == null) {
@@ -255,12 +261,19 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         return conf.getBoolean(CHDFS_META_TRANSFER_USE_TLS_KEY, DEFAULT_CHDFS_META_TRANSFER_USE_TLS);
     }
 
+    private boolean isDistinguishHost(Configuration conf) {
+        return conf.getBoolean(CHDFS_DATA_TRANSFER_DISTINGUISH_HOST, DEFAULT_CHDFS_DATA_TRANSFER_DISTINGUISH_FLAG);
+    }
+
+
     private void initJarLoadWithRetry(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-                                      boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
+                                      boolean jarPluginServerHttps, String cosEndPointSuffix, boolean distinguishHost
+            , String networkVersionId) throws IOException {
         int maxRetry = 5;
         for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
             try {
-                jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps, cosEndPointSuffix);
+                jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps,
+                        cosEndPointSuffix, distinguishHost, networkVersionId);
                 return;
             } catch (IOException e) {
                 if (retryIndex < maxRetry) {

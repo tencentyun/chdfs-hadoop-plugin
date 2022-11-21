@@ -6,6 +6,10 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.util.VersionInfo;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +25,6 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.net.URLConnection;
 import java.net.URLEncoder;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -32,6 +35,8 @@ class CHDFSHadoopFileSystemJarLoader {
     private static AlreadyLoadedFileSystemInfo alreadyLoadedFileSystemInfo;
     private String versionId;
     private String jarPath;
+
+    private String jarHost;
     private String jarMd5;
     private FileSystemWithLockCleaner actualFileSystem;
 
@@ -39,13 +44,14 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     synchronized void init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-            boolean jarPluginServerHttps, String cosEndPointSuffix) throws IOException {
+                           boolean jarPluginServerHttps, String cosEndPointSuffix, boolean distinguishHost,
+                           String networkVersionId) throws IOException {
         if (this.actualFileSystem == null) {
             long queryStartMs = System.currentTimeMillis();
             queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps, cosEndPointSuffix);
             log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
             this.actualFileSystem = getAlreadyLoadedClassInfo(this.getClass().getClassLoader(), this.jarPath,
-                    this.versionId, this.jarMd5, tmpDirPath);
+                    this.versionId, this.jarMd5, tmpDirPath, this.jarHost, distinguishHost, networkVersionId);
             if (this.actualFileSystem == null) {
                 String errMsg = "CHDFSHadoopFileSystemJarLoader getAlreadyLoadedClassInfo return null";
                 throw new IOException(errMsg);
@@ -80,6 +86,7 @@ class CHDFSHadoopFileSystemJarLoader {
             log.error(errMsg);
             throw new IOException(errMsg);
         } else {
+            this.jarHost = new URL(jarInfoJson.get("JarPath").getAsString()).getAuthority();
             if (cosEndPointSuffix != null) {
                 String jarPath = jarInfoJson.get("JarPath").getAsString();
                 int dotIndex = jarPath.indexOf('.');
@@ -95,7 +102,7 @@ class CHDFSHadoopFileSystemJarLoader {
                     log.error(errMsg);
                     throw new IOException(errMsg);
                 }
-                this.jarPath = jarPath.substring(0, dotIndex+1) + cosEndPointSuffix + jarPath.substring(slashIndex);
+                this.jarPath = jarPath.substring(0, dotIndex + 1) + cosEndPointSuffix + jarPath.substring(slashIndex);
             } else {
                 this.jarPath = jarInfoJson.get("JarPath").getAsString();
             }
@@ -111,7 +118,7 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
-            boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
+                                    boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
         String hadoopVersion = VersionInfo.getVersion();
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
@@ -168,7 +175,10 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private static synchronized FileSystemWithLockCleaner getAlreadyLoadedClassInfo(ClassLoader currentClassLoader,
-            String jarPath, String versionId, String jarMd5, String tmpDirPath) throws IOException {
+                                                                                    String jarPath, String versionId,
+                                                                                    String jarMd5, String tmpDirPath,
+                                                                                    String jarHost,
+                                                                                    boolean distinguishHost, String networkVersionId) throws IOException {
         if (alreadyLoadedFileSystemInfo != null && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId) && alreadyLoadedFileSystemInfo.jarMd5.equals(
                 jarMd5)) {
@@ -182,7 +192,7 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
 
-        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath);
+        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost, networkVersionId);
         URL jarUrl = null;
         try {
             jarUrl = jarFile.toURI().toURL();
@@ -205,7 +215,8 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath)
+    private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath,
+                                        String jarHost, boolean distinguishHost, String networkVersionId)
             throws IOException {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
         File localCacheJarLockFile = new File(
@@ -268,44 +279,57 @@ class CHDFSHadoopFileSystemJarLoader {
                     return localCacheJarFile;
                 }
             }
-            URL downloadJarUrl = null;
+            CloseableHttpClient httpclient = null;
+            CloseableHttpResponse response = null;
+            HttpGet httpGet = null;
             try {
-                downloadJarUrl = new URL(jarPath);
-            } catch (MalformedURLException e) {
-                String errMsg = String.format("invalid download jar url %s", jarPath);
-                log.error(errMsg, e);
-                throw new IOException(errMsg, e);
-            }
+                httpclient = HttpClients.createDefault();
+                httpGet = new HttpGet(jarPath);
+                httpGet.setHeader("User-Agent", String.format("chdfs_hadoop-plugin_network-%s", networkVersionId));
+                if (distinguishHost) {
+                    httpGet.addHeader("Host", jarHost);
+                    log.debug("host: {} already set", jarHost);
+                }
 
-            try {
-                URLConnection conn = downloadJarUrl.openConnection();
-                conn.connect();
-                bis = new BufferedInputStream(conn.getInputStream());
-                fos = new BufferedOutputStream(new FileOutputStream(localCacheJarFile));
-                IOUtils.copyBytes(bis, fos, 4096, true);
+                // execute request
+                response = httpclient.execute(httpGet);
+                // judge status code == 200
+                if (response.getStatusLine().getStatusCode() == 200) {
+                    // get content
+                    bis = new BufferedInputStream(response.getEntity().getContent());
+                    fos = new BufferedOutputStream(new FileOutputStream(localCacheJarFile));
+                    IOUtils.copyBytes(bis, fos, 4096, true);
 
-                // set jar and lock file permission 777
-                localCacheJarFile.setReadable(true, false);
-                localCacheJarFile.setWritable(true, false);
-                localCacheJarFile.setExecutable(true, false);
+                    // set jar and lock file permission 777
+                    localCacheJarFile.setReadable(true, false);
+                    localCacheJarFile.setWritable(true, false);
+                    localCacheJarFile.setExecutable(true, false);
 
-                localCacheJarLockFile.setReadable(true, false);
-                localCacheJarLockFile.setWritable(true, false);
-                localCacheJarLockFile.setExecutable(true, false);
+                    localCacheJarLockFile.setReadable(true, false);
+                    localCacheJarLockFile.setWritable(true, false);
+                    localCacheJarLockFile.setExecutable(true, false);
+                }
 
-                bis = null;
-                fos = null;
-
-                fileLock.release();
-                fileLock = null;
-
-                fileLockOutPut.close();
-                fileLockOutPut = null;
+                httpGet.releaseConnection();
             } catch (IOException e) {
+                httpGet.abort();
                 String errMsg = String.format("download jar failed, localJarPath: %s",
                         localCacheJarFile.getAbsolutePath());
                 log.error(errMsg, e);
                 throw new IOException(errMsg);
+            } finally {
+                if (response != null) {
+                    try {
+                        response.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                if (httpclient != null) {
+                    try {
+                        httpclient.close();
+                    } catch (IOException ignored) {
+                    }
+                }
             }
 
             String md5Hex = getFileHexMd5(localCacheJarFile);
