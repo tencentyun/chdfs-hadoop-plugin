@@ -36,7 +36,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
+public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner implements ServerSideEncryption {
     static final String SCHEME = "ofs";
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
     private static final String MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE =
@@ -625,6 +625,23 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         this.actualImplFS.releaseFileLock(p);
     }
 
+    public void enableSseCos() throws IOException{
+        judgeActualFSInitialized();
+        if (! (this.actualImplFS instanceof ServerSideEncryption)){
+            throw new IOException("the actualImplFS does not support sse interface");
+        }
+        ServerSideEncryption fs = (ServerSideEncryption) this.actualImplFS;
+        fs.enableSseCos();
+    }
+
+    public void disableSse() throws IOException{
+        judgeActualFSInitialized();
+        if (! (this.actualImplFS instanceof ServerSideEncryption)){
+            throw new IOException("the actualImplFS does not support sse interface");
+        }
+        ServerSideEncryption fs = (ServerSideEncryption) this.actualImplFS;
+        fs.disableSse();
+    }
 
     @Override
     public void close() throws IOException {
