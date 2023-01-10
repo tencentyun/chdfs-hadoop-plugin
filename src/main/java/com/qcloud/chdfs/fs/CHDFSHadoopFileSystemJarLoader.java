@@ -3,6 +3,7 @@ package com.qcloud.chdfs.fs;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.util.VersionInfo;
@@ -45,13 +46,14 @@ class CHDFSHadoopFileSystemJarLoader {
 
     synchronized void init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
                            boolean jarPluginServerHttps, String cosEndPointSuffix, boolean distinguishHost,
-                           String networkVersionId) throws IOException {
+                           String networkVersionId, boolean useL5, String metaL5Address, String cosL5Address) throws IOException {
         if (this.actualFileSystem == null) {
             long queryStartMs = System.currentTimeMillis();
-            queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps, cosEndPointSuffix);
+            queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps, cosEndPointSuffix,
+                    useL5, metaL5Address);
             log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
             this.actualFileSystem = getAlreadyLoadedClassInfo(this.getClass().getClassLoader(), this.jarPath,
-                    this.versionId, this.jarMd5, tmpDirPath, this.jarHost, distinguishHost, networkVersionId);
+                    this.versionId, this.jarMd5, tmpDirPath, this.jarHost, distinguishHost, networkVersionId, useL5, cosL5Address);
             if (this.actualFileSystem == null) {
                 String errMsg = "CHDFSHadoopFileSystemJarLoader getAlreadyLoadedClassInfo return null";
                 throw new IOException(errMsg);
@@ -117,8 +119,26 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
+    private static String getL5Endpoint(String l5Address) throws IOException {
+        try {
+            String[] address = l5Address.split(ConfigKey.L5Separator);
+            L5EndpointResolver l5EndpointResolver = new L5EndpointResolver(Integer.parseInt(address[0]),
+                    Integer.parseInt(address[1]));
+            String l5Endpoint = l5EndpointResolver.resolveGeneralApiEndpoint();
+            if (StringUtils.isEmpty(l5Endpoint)) {
+                throw new IOException(
+                        String.format("can not get ip and port from l5 address %s", l5Address));
+            }
+            return l5Endpoint;
+        } catch (NumberFormatException e) {
+            throw new IOException(
+                    String.format("l5 address: %s is invalid", l5Address));
+        }
+    }
+
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
-                                    boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
+                                    boolean jarPluginServerHttpsFlag, String cosEndPointSuffix,
+                                    boolean useL5, String metaL5Address) throws IOException {
         String hadoopVersion = VersionInfo.getVersion();
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
@@ -127,11 +147,20 @@ class CHDFSHadoopFileSystemJarLoader {
         URL queryJarUrl = null;
         String queryJarUrlStr = "";
         try {
-            queryJarUrlStr = String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
-                    jarPluginServerHttpsFlag ? "https" : "http", mountPointAddr, jarPluginServerPort, appid,
-                    URLEncoder.encode(hadoopVersion.trim(), "UTF-8"));
+            if (!useL5) {
+                queryJarUrlStr = String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
+                        jarPluginServerHttpsFlag ? "https" : "http", mountPointAddr, jarPluginServerPort, appid,
+                        URLEncoder.encode(hadoopVersion.trim(), "UTF-8"));
+            } else {
+                String l5Endpoint = getL5Endpoint(metaL5Address);
+                log.debug("get meta address success: {}", l5Endpoint);
+                queryJarUrlStr = String.format("%s://%s/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
+                        "http", l5Endpoint, appid,
+                        URLEncoder.encode(hadoopVersion.trim(), "UTF-8"));
+            }
             queryJarUrl = new URL(queryJarUrlStr);
-        } catch (MalformedURLException | UnsupportedEncodingException e) {
+
+        } catch (MalformedURLException | UnsupportedEncodingException | NumberFormatException e) {
             String errMsg = String.format("invalid url %s", queryJarUrlStr);
             log.error(errMsg, e);
             throw new IOException(errMsg, e);
@@ -178,7 +207,8 @@ class CHDFSHadoopFileSystemJarLoader {
                                                                                     String jarPath, String versionId,
                                                                                     String jarMd5, String tmpDirPath,
                                                                                     String jarHost,
-                                                                                    boolean distinguishHost, String networkVersionId) throws IOException {
+                                                                                    boolean distinguishHost,
+                                                                                    String networkVersionId, boolean useL5, String cosL5Address) throws IOException {
         if (alreadyLoadedFileSystemInfo != null && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId) && alreadyLoadedFileSystemInfo.jarMd5.equals(
                 jarMd5)) {
@@ -192,7 +222,8 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
 
-        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost, networkVersionId);
+        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost,
+                networkVersionId, useL5, cosL5Address);
         URL jarUrl = null;
         try {
             jarUrl = jarFile.toURI().toURL();
@@ -216,7 +247,7 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath,
-                                        String jarHost, boolean distinguishHost, String networkVersionId)
+                                        String jarHost, boolean distinguishHost, String networkVersionId, boolean useL5, String cosL5Address)
             throws IOException {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
         File localCacheJarLockFile = new File(
@@ -278,6 +309,10 @@ class CHDFSHadoopFileSystemJarLoader {
                 if (md5Hex.equalsIgnoreCase(jarMd5)) {
                     return localCacheJarFile;
                 }
+            }
+            if (useL5) {
+                String l5Endpoint = getL5Endpoint(cosL5Address);
+                replaceCosHost(jarPath, l5Endpoint);
             }
             CloseableHttpClient httpclient = null;
             CloseableHttpResponse response = null;
@@ -368,6 +403,16 @@ class CHDFSHadoopFileSystemJarLoader {
                 } catch (IOException ignored) {
                 }
             }
+        }
+    }
+
+    private static String replaceCosHost(String jarPath, String cosL5Address) throws IOException {
+        try {
+            URL url = new URL(jarPath);
+            String host = url.getHost();
+            return jarPath.replace(host, cosL5Address);
+        } catch (MalformedURLException e) {
+            throw new IOException(e);
         }
     }
 
