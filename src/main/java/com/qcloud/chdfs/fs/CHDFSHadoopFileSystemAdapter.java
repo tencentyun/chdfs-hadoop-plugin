@@ -1,5 +1,6 @@
 package com.qcloud.chdfs.fs;
 
+import com.jcraft.jsch.IO;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
@@ -36,7 +37,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
+public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
     static final String SCHEME = "ofs";
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
     private static final String MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE =
@@ -625,6 +626,21 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         this.actualImplFS.releaseFileLock(p);
     }
 
+    @Override
+    public void enableSSECos() throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        ((FileSystemWithCleanerAndSSE)this.actualImplFS).enableSSECos();
+    }
+
+    @Override
+    public void disableSSE() throws IOException {
+        if (this.actualImplFS == null) {
+            throw new IOException("please init the fileSystem first!");
+        }
+        ((FileSystemWithCleanerAndSSE)this.actualImplFS).disableSSE();
+    }
 
     @Override
     public void close() throws IOException {
@@ -632,4 +648,6 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithLockCleaner {
         super.close();
         this.actualImplFS.close();
     }
+
+
 }
