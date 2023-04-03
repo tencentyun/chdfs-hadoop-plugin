@@ -1,7 +1,7 @@
 package com.qcloud.chdfs.fs;
 
-import com.jcraft.jsch.IO;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.CreateFlag;
@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
@@ -58,6 +57,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
     public static final String CHDFS_DATA_TRANSFER_DISTINGUISH_HOST = "fs.ofs.data.transfer.distinguish.host";
 
     public static final boolean DEFAULT_CHDFS_DATA_TRANSFER_DISTINGUISH_FLAG = false;
+
+    public static final String CHDFS_USE_SHORT_BUCKETNAME_KEY = "fs.ofs.use.short.bucketname";
+
+    public static final boolean DEFAULT_CHDFS_USE_SHORT_BUCKETNAME = false;
 
     private final CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
     private FileSystemWithLockCleaner actualImplFS = null;
@@ -86,6 +89,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
                 throw new IOException(errMsg);
             }
 
+            if (isUseShortBucketName(conf) && getAppid(conf) != 0) {
+                // 如果使用 short bucket name,需要追加 appid
+                mountPointAddr = mountPointAddr + "-" + getAppid(conf);
+            }
             String ofsHost;
             if (isValidMountPointAddrChdfsType(mountPointAddr)) {
                 ofsHost = mountPointAddr;
@@ -161,6 +168,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
             throw new IOException(errMsg);
         }
         return bucketRegion;
+    }
+
+    private boolean isUseShortBucketName(Configuration conf) throws IOException {
+        return conf.getBoolean(CHDFS_USE_SHORT_BUCKETNAME_KEY, DEFAULT_CHDFS_USE_SHORT_BUCKETNAME);
     }
 
     private String getMetaEndpointSuffix(Configuration conf) throws IOException {
@@ -631,7 +642,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
-        ((FileSystemWithCleanerAndSSE)this.actualImplFS).enableSSECos();
+        ((FileSystemWithCleanerAndSSE) this.actualImplFS).enableSSECos();
     }
 
     @Override
@@ -639,7 +650,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
         if (this.actualImplFS == null) {
             throw new IOException("please init the fileSystem first!");
         }
-        ((FileSystemWithCleanerAndSSE)this.actualImplFS).disableSSE();
+        ((FileSystemWithCleanerAndSSE) this.actualImplFS).disableSSE();
     }
 
     @Override
