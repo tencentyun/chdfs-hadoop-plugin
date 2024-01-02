@@ -3,6 +3,7 @@ package com.qcloud.chdfs.fs;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.util.VersionInfo;
@@ -38,24 +39,20 @@ class CHDFSHadoopFileSystemJarLoader {
 
     private String jarHost;
     private String jarMd5;
-    private FileSystemWithLockCleaner actualFileSystem;
+    private FileSystem actualFileSystem;
 
     CHDFSHadoopFileSystemJarLoader() {
     }
 
     synchronized void init(String mountPointAddr, long appid, int jarPluginServerPort, String tmpDirPath,
-                           boolean jarPluginServerHttps, String cosEndPointSuffix, boolean distinguishHost,
-                           String networkVersionId) throws IOException {
+            boolean jarPluginServerHttps, String cosEndPointSuffix, boolean distinguishHost, String networkVersionId)
+            throws IOException {
         if (this.actualFileSystem == null) {
             long queryStartMs = System.currentTimeMillis();
             queryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttps, cosEndPointSuffix);
             log.debug("query jar plugin info usedMs: {}", System.currentTimeMillis() - queryStartMs);
             this.actualFileSystem = getAlreadyLoadedClassInfo(this.getClass().getClassLoader(), this.jarPath,
                     this.versionId, this.jarMd5, tmpDirPath, this.jarHost, distinguishHost, networkVersionId);
-            if (this.actualFileSystem == null) {
-                String errMsg = "CHDFSHadoopFileSystemJarLoader getAlreadyLoadedClassInfo return null";
-                throw new IOException(errMsg);
-            }
         }
     }
 
@@ -63,19 +60,16 @@ class CHDFSHadoopFileSystemJarLoader {
         JsonObject respJson = new JsonParser().parse(respStr).getAsJsonObject();
         if (!respJson.has("Response")) {
             String errMsg = String.format("resp json miss element Response, resp: %s", respStr);
-            log.error(errMsg);
             throw new IOException(errMsg);
         }
 
         if (!respJson.get("Response").getAsJsonObject().has("HadoopPluginJar")) {
             String errMsg = String.format("resp json miss element Response.HadoopPluginJar, resp: %s", respStr);
-            log.error(errMsg);
             throw new IOException(errMsg);
         }
         JsonObject jarInfoJson = respJson.get("Response").getAsJsonObject().get("HadoopPluginJar").getAsJsonObject();
         if (!jarInfoJson.has("VersionId")) {
             String errMsg = String.format("resp miss config Response.HadoopPluginJar.VersionId, resp: %s", respStr);
-            log.error(errMsg);
             throw new IOException(errMsg);
         } else {
             this.versionId = jarInfoJson.get("VersionId").getAsString();
@@ -83,7 +77,6 @@ class CHDFSHadoopFileSystemJarLoader {
 
         if (!jarInfoJson.has("JarPath")) {
             String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarPath, resp: %s", respStr);
-            log.error(errMsg);
             throw new IOException(errMsg);
         } else {
             this.jarHost = new URL(jarInfoJson.get("JarPath").getAsString()).getAuthority();
@@ -92,14 +85,12 @@ class CHDFSHadoopFileSystemJarLoader {
                 int dotIndex = jarPath.indexOf('.');
                 if (dotIndex == -1) {
                     String errMsg = String.format("invalid jar path : %s", jarPath);
-                    log.error(errMsg);
                     throw new IOException(errMsg);
                 }
 
                 int slashIndex = jarPath.indexOf('/', dotIndex);
                 if (slashIndex == -1) {
                     String errMsg = String.format("invalid jar path : %s", jarPath);
-                    log.error(errMsg);
                     throw new IOException(errMsg);
                 }
                 this.jarPath = jarPath.substring(0, dotIndex + 1) + cosEndPointSuffix + jarPath.substring(slashIndex);
@@ -110,21 +101,20 @@ class CHDFSHadoopFileSystemJarLoader {
 
         if (!jarInfoJson.has("JarMd5")) {
             String errMsg = String.format("resp miss config Response.HadoopPluginJar.JarMd5, resp: %s", respStr);
-            log.error(errMsg);
             throw new IOException(errMsg);
         } else {
             this.jarMd5 = jarInfoJson.get("JarMd5").getAsString();
         }
     }
 
-    private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
-                                    boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
+    private void doQueryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
+            boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
         String hadoopVersion = VersionInfo.getVersion();
         if (hadoopVersion == null) {
             hadoopVersion = "unknown";
         }
 
-        URL queryJarUrl = null;
+        URL queryJarUrl;
         String queryJarUrlStr = "";
         try {
             queryJarUrlStr = String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
@@ -133,7 +123,6 @@ class CHDFSHadoopFileSystemJarLoader {
             queryJarUrl = new URL(queryJarUrlStr);
         } catch (MalformedURLException | UnsupportedEncodingException e) {
             String errMsg = String.format("invalid url %s", queryJarUrlStr);
-            log.error(errMsg, e);
             throw new IOException(errMsg, e);
         }
 
@@ -158,7 +147,7 @@ class CHDFSHadoopFileSystemJarLoader {
             parseJarPluginInfoResp(respStr, cosEndPointSuffix);
         } catch (IOException e) {
             String errMsg = "queryJarPluginInfo occur an io exception";
-            log.error(errMsg, e);
+            log.warn(errMsg, e);
             throw new IOException(errMsg, e);
         } finally {
             if (bis != null) {
@@ -174,16 +163,39 @@ class CHDFSHadoopFileSystemJarLoader {
         log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
     }
 
-    private static synchronized FileSystemWithLockCleaner getAlreadyLoadedClassInfo(ClassLoader currentClassLoader,
-                                                                                    String jarPath, String versionId,
-                                                                                    String jarMd5, String tmpDirPath,
-                                                                                    String jarHost,
-                                                                                    boolean distinguishHost, String networkVersionId) throws IOException {
+    private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
+            boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
+
+        final int maxRetry = 5;
+        IOException finalException = null;
+        for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
+            try {
+                doQueryJarPluginInfo(mountPointAddr, appid, jarPluginServerPort, jarPluginServerHttpsFlag,
+                        cosEndPointSuffix);
+                return;
+            } catch (IOException e) {
+                log.warn(String.format("query jar plugin info failed, retryIndex: [%d/%d]", retryIndex, maxRetry), e);
+                finalException = e;
+            }
+
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException ignored) {
+            }
+        }
+
+        log.error("query jar plugin info failed after retry", finalException);
+        throw finalException;
+    }
+
+    private static synchronized FileSystem getAlreadyLoadedClassInfo(ClassLoader currentClassLoader, String jarPath,
+            String versionId, String jarMd5, String tmpDirPath, String jarHost, boolean distinguishHost,
+            String networkVersionId) throws IOException {
         if (alreadyLoadedFileSystemInfo != null && alreadyLoadedFileSystemInfo.jarPath.equals(jarPath)
                 && alreadyLoadedFileSystemInfo.versionId.equals(versionId) && alreadyLoadedFileSystemInfo.jarMd5.equals(
                 jarMd5)) {
             try {
-                return (FileSystemWithLockCleaner) alreadyLoadedFileSystemInfo.chdfsFSClass.newInstance();
+                return (FileSystem) alreadyLoadedFileSystemInfo.chdfsFSClass.newInstance();
             } catch (InstantiationException | IllegalAccessException e) {
                 String errMsg = String.format("load chdfs class failed, className: %s",
                         alreadyLoadedFileSystemInfo.chdfsFSClass.getName());
@@ -192,8 +204,9 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
 
-        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost, networkVersionId);
-        URL jarUrl = null;
+        File jarFile = downloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost,
+                networkVersionId);
+        URL jarUrl;
         try {
             jarUrl = jarFile.toURI().toURL();
         } catch (MalformedURLException e) {
@@ -204,8 +217,8 @@ class CHDFSHadoopFileSystemJarLoader {
         URLClassLoader chdfsJarClassLoader = new URLClassLoader(new URL[]{jarUrl}, currentClassLoader);
         final String className = String.format("chdfs.%s.com.qcloud.chdfs.fs.CHDFSHadoopFileSystem", versionId);
         try {
-            Class chdfsFSClass = chdfsJarClassLoader.loadClass(className);
-            FileSystemWithLockCleaner actualFileSystem = (FileSystemWithLockCleaner) chdfsFSClass.newInstance();
+            Class<?> chdfsFSClass = chdfsJarClassLoader.loadClass(className);
+            FileSystem actualFileSystem = (FileSystem) chdfsFSClass.newInstance();
             alreadyLoadedFileSystemInfo = new AlreadyLoadedFileSystemInfo(versionId, jarPath, jarMd5, chdfsFSClass);
             return actualFileSystem;
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
@@ -216,8 +229,7 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath,
-                                        String jarHost, boolean distinguishHost, String networkVersionId)
-            throws IOException {
+            String jarHost, boolean distinguishHost, String networkVersionId) throws IOException {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
         File localCacheJarLockFile = new File(
                 String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar.LOCK", tmpDirPath, versionId));
@@ -228,8 +240,7 @@ class CHDFSHadoopFileSystemJarLoader {
             }
         }
 
-        FileOutputStream fileLockOutPut = null;
-        FileLock fileLock = null;
+        FileOutputStream fileLockOutPut;
         try {
             fileLockOutPut = new FileOutputStream(localCacheJarLockFile);
         } catch (IOException e) {
@@ -239,6 +250,7 @@ class CHDFSHadoopFileSystemJarLoader {
             throw new IOException(errMsg, e);
         }
 
+        FileLock fileLock;
         while (true) {
             try {
                 fileLock = fileLockOutPut.getChannel().lock();
@@ -386,7 +398,7 @@ class CHDFSHadoopFileSystemJarLoader {
         }
     }
 
-    FileSystemWithLockCleaner getActualFileSystem() {
+    FileSystem getActualFileSystem() {
         return actualFileSystem;
     }
 }

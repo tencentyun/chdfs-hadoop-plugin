@@ -1,7 +1,7 @@
 package com.qcloud.chdfs.fs;
 
+import com.qcloud.chdfs.permission.RangerAccessType;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.CreateFlag;
@@ -10,6 +10,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileAlreadyExistsException;
 import org.apache.hadoop.fs.FileChecksum;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FsStatus;
 import org.apache.hadoop.fs.ParentNotDirectoryException;
 import org.apache.hadoop.fs.Path;
@@ -36,7 +37,7 @@ import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
-public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
+public class CHDFSHadoopFileSystemAdapter extends FileSystem implements FileLockCleaner, ServerSideEncryption, RangerPermissionChecker {
     static final String SCHEME = "ofs";
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
     private static final String MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE =
@@ -63,10 +64,9 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
     public static final boolean DEFAULT_CHDFS_USE_SHORT_BUCKETNAME = false;
 
     private final CHDFSHadoopFileSystemJarLoader jarLoader = new CHDFSHadoopFileSystemJarLoader();
-    private FileSystemWithLockCleaner actualImplFS = null;
+    private FileSystem actualImplFS = null;
     private URI uri = null;
     private Path workingDir = null;
-    private long initStartMs;
 
     @Override
     public String getScheme() {
@@ -76,7 +76,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
     @Override
     public void initialize(URI name, Configuration conf) throws IOException {
         log.debug("CHDFSHadoopFileSystemAdapter adapter initialize");
-        this.initStartMs = System.currentTimeMillis();
+        long initStartMs = System.currentTimeMillis();
         log.debug("CHDFSHadoopFileSystemAdapter start-init-start time: {}", initStartMs);
         try {
             super.initialize(name, conf);
@@ -84,7 +84,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
             String mountPointAddr = name.getHost();
             if (mountPointAddr == null) {
                 String errMsg = String.format("mountPointAddr is null, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
-                        + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw", name.toString());
+                        + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw", name);
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
@@ -109,7 +109,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
             } else {
                 String errMsg = String.format("mountPointAddr %s is invalid, fullUri: %s, exp. f4mabcdefgh-xyzw.chdfs"
                                 + ".ap-guangzhou.myqcloud.com or examplebucket-1250000000 or f4mabcdefgh-xyzw",
-                        mountPointAddr, name.toString());
+                        mountPointAddr, name);
                 log.error(errMsg);
                 throw new IOException(errMsg);
             }
@@ -143,7 +143,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
             throw ioe;
         } catch (Exception e) {
             log.error("initialize failed! a unexpected exception occur!", e);
-            throw new IOException("initialize failed! oops! a unexpected exception occur! " + e.toString(), e);
+            throw new IOException("initialize failed! oops! a unexpected exception occur! " + e, e);
         }
         log.debug("total init file system, [elapse-ms: {}]", System.currentTimeMillis() - initStartMs);
     }
@@ -631,26 +631,43 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE {
 
     @Override
     public void releaseFileLock(Path p) throws IOException {
-        if (this.actualImplFS == null) {
-            throw new IOException("please init the fileSystem first!");
+        judgeActualFSInitialized();
+        if (this.actualImplFS instanceof FileLockCleaner) {
+            ((FileLockCleaner) this.actualImplFS).releaseFileLock(p);
+        } else {
+            throw new IOException("the actual fileSystem not implemented the lock cleaner interface!");
         }
-        this.actualImplFS.releaseFileLock(p);
     }
 
     @Override
     public void enableSSECos() throws IOException {
-        if (this.actualImplFS == null) {
-            throw new IOException("please init the fileSystem first!");
+        judgeActualFSInitialized();
+
+        if (this.actualImplFS instanceof ServerSideEncryption) {
+            ((ServerSideEncryption) this.actualImplFS).enableSSECos();
+        } else {
+            throw new IOException("the actual fileSystem not implemented the enable sse interface!");
         }
-        ((FileSystemWithCleanerAndSSE) this.actualImplFS).enableSSECos();
     }
 
     @Override
     public void disableSSE() throws IOException {
-        if (this.actualImplFS == null) {
-            throw new IOException("please init the fileSystem first!");
+        judgeActualFSInitialized();
+        if (this.actualImplFS instanceof ServerSideEncryption) {
+            ((ServerSideEncryption) this.actualImplFS).disableSSE();
+        } else {
+            throw new IOException("the actual fileSystem not implemented the enable sse interface!");
         }
-        ((FileSystemWithCleanerAndSSE) this.actualImplFS).disableSSE();
+    }
+
+    @Override
+    public void checkPermission(Path f, RangerAccessType rangerAccessType) throws IOException {
+        judgeActualFSInitialized();
+        if (this.actualImplFS instanceof RangerPermissionChecker) {
+            ((RangerPermissionChecker) this.actualImplFS).checkPermission(f, rangerAccessType);
+        } else {
+            throw new IOException("the actual fileSystem not implemented the permission check interface!");
+        }
     }
 
     @Override
