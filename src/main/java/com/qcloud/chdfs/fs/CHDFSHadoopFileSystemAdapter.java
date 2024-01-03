@@ -37,7 +37,7 @@ import java.util.Properties;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
-public class CHDFSHadoopFileSystemAdapter extends FileSystem implements FileLockCleaner, ServerSideEncryption, RangerPermissionChecker {
+public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE implements RangerPermissionChecker {
     static final String SCHEME = "ofs";
     private static final Logger log = LoggerFactory.getLogger(CHDFSHadoopFileSystemAdapter.class);
     private static final String MOUNT_POINT_ADDR_PATTERN_CHDFS_TYPE =
