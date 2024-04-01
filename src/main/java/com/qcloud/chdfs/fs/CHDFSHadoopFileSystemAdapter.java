@@ -1,7 +1,6 @@
 package com.qcloud.chdfs.fs;
 
 import com.qcloud.chdfs.permission.RangerAccessType;
-import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.CreateFlag;
@@ -333,7 +332,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
         } catch (IOException e) {
             log.error("load versionInfo properties failed", e);
         } finally {
-            IOUtils.closeQuietly(in);
+            utils.closeQuietly(in);
         }
         return networkVersionId;
     }
