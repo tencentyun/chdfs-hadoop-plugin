@@ -7,6 +7,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.util.VersionInfo;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -29,6 +30,7 @@ import java.net.URLClassLoader;
 import java.net.URLEncoder;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.util.concurrent.ThreadLocalRandom;
 
 class CHDFSHadoopFileSystemJarLoader {
 
@@ -133,7 +135,8 @@ class CHDFSHadoopFileSystemJarLoader {
         try {
             conn = (HttpURLConnection) queryJarUrl.openConnection();
             conn.setRequestProperty("Connection", "Keep-Alive");
-            conn.setReadTimeout(120000);
+            conn.setReadTimeout(60000);
+            conn.setConnectTimeout(10000);
             conn.connect();
 
             bis = new BufferedInputStream(conn.getInputStream());
@@ -166,7 +169,7 @@ class CHDFSHadoopFileSystemJarLoader {
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
             boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
 
-        final int maxRetry = 5;
+        final int maxRetry = 3;
         IOException finalException = null;
         for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
             try {
@@ -178,8 +181,9 @@ class CHDFSHadoopFileSystemJarLoader {
                 finalException = e;
             }
 
+            int sleepInterval = ThreadLocalRandom.current().nextInt(600, 2000);
             try {
-                Thread.sleep(1000);
+                Thread.sleep(sleepInterval);
             } catch (InterruptedException ignored) {
             }
         }
@@ -302,6 +306,10 @@ class CHDFSHadoopFileSystemJarLoader {
                     httpGet.addHeader("Host", jarHost);
                     log.debug("host: {} already set", jarHost);
                 }
+
+                RequestConfig requestConfig = RequestConfig.custom().setConnectionRequestTimeout(
+                        10000).setConnectTimeout(10000).setSocketTimeout(30000).build();
+                httpGet.setConfig(requestConfig);
 
                 // execute request
                 response = httpclient.execute(httpGet);

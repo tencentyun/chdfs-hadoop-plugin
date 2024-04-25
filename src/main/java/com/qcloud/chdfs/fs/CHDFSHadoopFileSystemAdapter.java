@@ -286,7 +286,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
                 jarLoader.init(mountPointAddr, appid, jarPluginServerPort, tmpDirPath, jarPluginServerHttps,
                         cosEndPointSuffix, distinguishHost, networkVersionId);
                 return;
-            } catch (IOException e) {
+            } catch (Exception e) {
                 if (retryIndex < maxRetry) {
                     log.warn(String.format("init chdfs impl failed, we will retry again, retryInfo: %d/%d", retryIndex,
                             maxRetry), e);
