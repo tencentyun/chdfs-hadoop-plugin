@@ -169,7 +169,7 @@ class CHDFSHadoopFileSystemJarLoader {
     private void queryJarPluginInfo(String mountPointAddr, long appid, int jarPluginServerPort,
             boolean jarPluginServerHttpsFlag, String cosEndPointSuffix) throws IOException {
 
-        final int maxRetry = 10;
+        final int maxRetry = 3;
         IOException finalException = null;
         for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
             try {
@@ -233,30 +233,6 @@ class CHDFSHadoopFileSystemJarLoader {
     }
 
     private static File downloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath,
-            String jarHost, boolean distinguishHost, String networkVersionId) throws IOException {
-        final int maxRetry = 10;
-        IOException finalException = null;
-        for (int retryIndex = 0; retryIndex <= maxRetry; retryIndex++) {
-            try {
-                return doDownloadJarPath(jarPath, versionId, jarMd5, tmpDirPath, jarHost, distinguishHost,
-                        networkVersionId);
-            } catch (IOException e) {
-                log.warn(String.format("download jar plugin failed, retryIndex: [%d/%d]", retryIndex, maxRetry), e);
-                finalException = e;
-            }
-
-            int sleepInterval = ThreadLocalRandom.current().nextInt(600, 2000);
-            try {
-                Thread.sleep(sleepInterval);
-            } catch (InterruptedException ignored) {
-            }
-        }
-
-        log.error("download jar plugin failed after retry", finalException);
-        throw finalException;
-    }
-
-    private static File doDownloadJarPath(String jarPath, String versionId, String jarMd5, String tmpDirPath,
             String jarHost, boolean distinguishHost, String networkVersionId) throws IOException {
         File localCacheJarFile = new File(String.format("%s/chdfs_hadoop_plugin-%s-shaded.jar", tmpDirPath, versionId));
         File localCacheJarLockFile = new File(
