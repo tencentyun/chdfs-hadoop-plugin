@@ -44,7 +44,14 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
     private static final String MOUNT_POINT_ADDR_PATTERN_COS_TYPE =
             "^([a-z0-9-]+)-([a-zA-Z0-9]+)$";
     private static final String CHDFS_USER_APPID_KEY = "fs.ofs.user.appid";
+    private static final String CHDFS_DOWNLOAD_JAR_APPID_KEY = "fs.ofs.downloadjar.appid";
+    /**
+     * This configuration item has been deprecated, please use fs.ofs.jar.cache.dir instead.
+     */
+    @Deprecated
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
+
+    private static final String CHDFS_JAR_CACHE_DIR_KEY = "fs.ofs.jar.cache.dir";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
     private static final String CHDFS_BUCKET_REGION = "fs.ofs.bucket.region";
@@ -116,7 +123,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
             String networkVersionId = initPluginNetworkVersion();
             conf.set("chdfs.hadoop.plugin.network.version", String.format("network:%s", networkVersionId));
 
-            long appid = getAppid(conf);
+            long appid = getDownLoadJarAppid(conf);
             int jarPluginServerPort = getJarPluginServerPort(conf);
             String tmpDirPath = initCacheTmpDir(conf);
             boolean jarPluginServerHttpsFlag = isJarPluginServerHttps(conf);
@@ -200,6 +207,19 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
         return retValue.trim();
     }
 
+    private long getDownLoadJarAppid(Configuration conf) throws IOException {
+        long appid = 0;
+        try {
+            appid = conf.getLong(CHDFS_DOWNLOAD_JAR_APPID_KEY, 0);
+        } catch (NumberFormatException e) {
+            throw new IOException(String.format("config for %s is invalid appid number", CHDFS_DOWNLOAD_JAR_APPID_KEY));
+        }
+        if (appid > 0) {
+            return appid;
+        }
+        return getAppid(conf);
+    }
+
     private long getAppid(Configuration conf) throws IOException {
         long appid = 0;
         try {
@@ -220,6 +240,11 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
 
     private String initCacheTmpDir(Configuration conf) throws IOException {
         String chdfsTmpCacheDirPath = conf.get(CHDFS_TMP_CACHE_DIR_KEY);
+        String jarTmpCacheDirPath = conf.get(CHDFS_JAR_CACHE_DIR_KEY);
+        if (jarTmpCacheDirPath != null && !jarTmpCacheDirPath.isEmpty()) {
+            chdfsTmpCacheDirPath = jarTmpCacheDirPath; // compatible with old configuration items
+        }
+
         if (chdfsTmpCacheDirPath == null) {
             String errMsg = String.format("chdfs config %s is missing", CHDFS_TMP_CACHE_DIR_KEY);
             log.error(errMsg);
