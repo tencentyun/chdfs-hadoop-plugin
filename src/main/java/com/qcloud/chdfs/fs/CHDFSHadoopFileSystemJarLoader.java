@@ -27,6 +27,7 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLConnection;
 import java.net.URLEncoder;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -129,11 +130,11 @@ class CHDFSHadoopFileSystemJarLoader {
         }
 
         long startTimeNs = System.nanoTime();
-        HttpURLConnection conn = null;
+        URLConnection conn = null;
         BufferedInputStream bis = null;
         ByteArrayOutputStream bos = null;
         try {
-            conn = (HttpURLConnection) queryJarUrl.openConnection();
+            conn = queryJarUrl.openConnection();
             conn.setRequestProperty("Connection", "Keep-Alive");
             conn.setReadTimeout(60000);
             conn.setConnectTimeout(10000);
@@ -159,8 +160,8 @@ class CHDFSHadoopFileSystemJarLoader {
             if (bos != null) {
                 IOUtils.closeStream(bos);
             }
-            if (conn != null) {
-                conn.disconnect();
+            if (conn instanceof HttpURLConnection) {
+                ((HttpURLConnection) conn).disconnect();
             }
         }
         log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
