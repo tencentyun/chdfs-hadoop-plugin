@@ -29,6 +29,7 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.URLConnection;
 import java.net.URLEncoder;
+import java.net.URLStreamHandler;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.concurrent.ThreadLocalRandom;
@@ -123,7 +124,18 @@ class CHDFSHadoopFileSystemJarLoader {
             queryJarUrlStr = String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
                     jarPluginServerHttpsFlag ? "https" : "http", mountPointAddr, jarPluginServerPort, appid,
                     URLEncoder.encode(hadoopVersion.trim(), "UTF-8"));
-            queryJarUrl = new URL(queryJarUrlStr);
+            
+            // 根据协议类型手动指定handler
+            URLStreamHandler handler;
+            // 直接使用导入的Handler类
+            if (!jarPluginServerHttpsFlag) {
+                handler = new sun.net.www.protocol.http.Handler();
+            } else {
+                handler = new sun.net.www.protocol.https.Handler();
+            }
+            
+            // 使用正确的URL构造函数：URL(URL context, String spec, URLStreamHandler handler)
+            queryJarUrl = new URL(null, queryJarUrlStr, handler);
         } catch (MalformedURLException | UnsupportedEncodingException e) {
             String errMsg = String.format("invalid url %s", queryJarUrlStr);
             throw new IOException(errMsg, e);
