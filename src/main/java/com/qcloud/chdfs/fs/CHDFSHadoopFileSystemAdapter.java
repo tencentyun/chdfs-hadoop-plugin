@@ -250,47 +250,73 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
             log.error(errMsg);
             throw new IOException(errMsg);
         }
-        if (!chdfsTmpCacheDirPath.startsWith("/")) {
-            String errMsg = String.format("chdfs config [%s: %s] must be absolute path", CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
-        }
 
-        File chdfsTmpCacheDir = new File(chdfsTmpCacheDirPath);
-        if (!chdfsTmpCacheDir.exists()) {
-            // judge exists again, may many map-reduce processes create cache dir parallel
-            if (!chdfsTmpCacheDir.mkdirs() && !chdfsTmpCacheDir.exists()) {
-                String errMsg = String.format("mkdir for chdfs tmp dir %s failed", chdfsTmpCacheDir.getAbsolutePath());
-                log.error(errMsg);
-                throw new IOException(errMsg);
+        // 支持配置多个目录，用逗号分隔，用于容灾
+        String[] cacheDirPaths = chdfsTmpCacheDirPath.split(",");
+        StringBuilder failedDirsMsg = new StringBuilder();
+
+        for (String dirPath : cacheDirPaths) {
+            String trimmedPath = dirPath.trim();
+            if (trimmedPath.isEmpty()) {
+                continue;
             }
-            chdfsTmpCacheDir.setReadable(true, false);
-            chdfsTmpCacheDir.setWritable(true, false);
-            chdfsTmpCacheDir.setExecutable(true, false);
+
+            String validationResult = validateCacheDir(trimmedPath);
+            if (validationResult == null) {
+                // 目录验证通过，返回该目录
+                log.info("Using cache directory: {}", trimmedPath);
+                return trimmedPath;
+            } else {
+                // 记录失败原因，继续尝试下一个目录
+                log.warn("Cache directory {} is not available: {}", trimmedPath, validationResult);
+                if (failedDirsMsg.length() > 0) {
+                    failedDirsMsg.append("; ");
+                }
+                failedDirsMsg.append(validationResult);
+            }
         }
 
-        if (!chdfsTmpCacheDir.isDirectory()) {
-            String errMsg = String.format("chdfs config [%s: %s] is invalid directory", CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDir.getAbsolutePath());
-            log.error(errMsg);
-            throw new IOException(errMsg);
+        // 所有目录都不可用
+        String errMsg = String.format("All configured cache directories are not available. Details: %s",
+                failedDirsMsg.toString());
+        throw new IOException(errMsg);
+    }
+
+    private String validateCacheDir(String dirPath) {
+        if (!dirPath.startsWith("/")) {
+            return String.format("path must be absolute, got: %s", dirPath);
         }
 
-        if (!chdfsTmpCacheDir.canRead()) {
-            String errMsg = String.format("chdfs config [%s: %s] is not readable", CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
+        File cacheDir = new File(dirPath);
+
+        // 尝试创建目录
+        if (!cacheDir.exists()) {
+            try {
+                // judge exists again, may many map-reduce processes create cache dir parallel
+                if (!cacheDir.mkdirs() && !cacheDir.exists()) {
+                    return String.format("failed to create directory: %s", cacheDir.getAbsolutePath());
+                }
+                cacheDir.setReadable(true, false);
+                cacheDir.setWritable(true, false);
+                cacheDir.setExecutable(true, false);
+            } catch (SecurityException e) {
+                return String.format("security exception when creating directory: %s", e.getMessage());
+            }
         }
 
-        if (!chdfsTmpCacheDir.canWrite()) {
-            String errMsg = String.format("chdfs config [%s: %s] is not writeable", CHDFS_TMP_CACHE_DIR_KEY,
-                    chdfsTmpCacheDirPath);
-            log.error(errMsg);
-            throw new IOException(errMsg);
+        if (!cacheDir.isDirectory()) {
+            return String.format("path is not a directory: %s", cacheDir.getAbsolutePath());
         }
-        return chdfsTmpCacheDirPath;
+
+        if (!cacheDir.canRead()) {
+            return String.format("directory is not readable: %s", dirPath);
+        }
+
+        if (!cacheDir.canWrite()) {
+            return String.format("directory is not writable: %s", dirPath);
+        }
+
+        return null; // 验证通过
     }
 
     private boolean isJarPluginServerHttps(Configuration conf) {
