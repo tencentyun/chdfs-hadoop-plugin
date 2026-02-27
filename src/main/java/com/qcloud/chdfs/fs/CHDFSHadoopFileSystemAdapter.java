@@ -52,6 +52,7 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
     private static final String CHDFS_TMP_CACHE_DIR_KEY = "fs.ofs.tmp.cache.dir";
 
     private static final String CHDFS_JAR_CACHE_DIR_KEY = "fs.ofs.jar.cache.dir";
+    private static final String CHDFS_JAR_CACHE_DIR_LIST_KEY = "fs.ofs.jar.cache.dir.list";
     private static final String CHDFS_META_SERVER_PORT_KEY = "fs.ofs.meta.server.port";
     private static final String CHDFS_META_TRANSFER_USE_TLS_KEY = "fs.ofs.meta.transfer.tls";
     private static final String CHDFS_BUCKET_REGION = "fs.ofs.bucket.region";
@@ -252,7 +253,10 @@ public class CHDFSHadoopFileSystemAdapter extends FileSystemWithCleanerAndSSE im
         }
 
         // 支持配置多个目录，用逗号分隔，用于容灾
-        String[] cacheDirPaths = chdfsTmpCacheDirPath.split(",");
+        String chdfsJarCacheDirList = conf.get(CHDFS_JAR_CACHE_DIR_LIST_KEY);
+        String[] cacheDirPaths = chdfsJarCacheDirList != null && !chdfsJarCacheDirList.isEmpty()
+                ? chdfsJarCacheDirList.split(",")
+                : new String[]{chdfsTmpCacheDirPath};
         StringBuilder failedDirsMsg = new StringBuilder();
 
         for (String dirPath : cacheDirPaths) {
