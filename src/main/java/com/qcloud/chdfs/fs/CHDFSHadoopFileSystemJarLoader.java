@@ -23,13 +23,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.net.URLConnection;
 import java.net.URLEncoder;
-import java.net.URLStreamHandler;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.util.concurrent.ThreadLocalRandom;
@@ -118,62 +115,78 @@ class CHDFSHadoopFileSystemJarLoader {
             hadoopVersion = "unknown";
         }
 
-        URL queryJarUrl;
-        String queryJarUrlStr = "";
+        String queryJarUrlStr;
         try {
             queryJarUrlStr = String.format("%s://%s:%d/chdfs-hadoop-plugin?appid=%d&hadoop_version=%s",
                     jarPluginServerHttpsFlag ? "https" : "http", mountPointAddr, jarPluginServerPort, appid,
                     URLEncoder.encode(hadoopVersion.trim(), "UTF-8"));
-            
-            // 根据协议类型手动指定handler
-            URLStreamHandler handler;
-            // 直接使用导入的Handler类
-            if (!jarPluginServerHttpsFlag) {
-                handler = new sun.net.www.protocol.http.Handler();
-            } else {
-                handler = new sun.net.www.protocol.https.Handler();
-            }
-            
-            // 使用正确的URL构造函数：URL(URL context, String spec, URLStreamHandler handler)
-            queryJarUrl = new URL(null, queryJarUrlStr, handler);
-        } catch (MalformedURLException | UnsupportedEncodingException e) {
-            String errMsg = String.format("invalid url %s", queryJarUrlStr);
+        } catch (UnsupportedEncodingException e) {
+            String errMsg = String.format("invalid url encoding for hadoop version %s", hadoopVersion);
             throw new IOException(errMsg, e);
         }
 
         long startTimeNs = System.nanoTime();
-        URLConnection conn = null;
-        BufferedInputStream bis = null;
-        ByteArrayOutputStream bos = null;
+        CloseableHttpClient httpclient = null;
+        CloseableHttpResponse response = null;
+        HttpGet httpGet = null;
         try {
-            conn = queryJarUrl.openConnection();
-            conn.setRequestProperty("Connection", "Keep-Alive");
-            conn.setReadTimeout(60000);
-            conn.setConnectTimeout(10000);
-            conn.connect();
+            httpclient = HttpClients.createDefault();
+            httpGet = new HttpGet(queryJarUrlStr);
+            httpGet.setHeader("Connection", "Keep-Alive");
 
-            bis = new BufferedInputStream(conn.getInputStream());
-            bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int readLen = 0;
-            while ((readLen = bis.read(buf)) != -1) {
-                bos.write(buf, 0, readLen);
+            RequestConfig requestConfig = RequestConfig.custom()
+                                                       .setConnectionRequestTimeout(10000)
+                                                       .setConnectTimeout(10000)
+                                                       .setSocketTimeout(60000)
+                                                       .build();
+            httpGet.setConfig(requestConfig);
+
+            response = httpclient.execute(httpGet);
+
+            if (response.getStatusLine().getStatusCode() != 200) {
+                String errMsg = String.format("queryJarPluginInfo failed, statusCode: %d, url: %s",
+                        response.getStatusLine().getStatusCode(), queryJarUrlStr);
+                throw new IOException(errMsg);
             }
-            String respStr = bos.toString();
-            parseJarPluginInfoResp(respStr, cosEndPointSuffix);
+
+            BufferedInputStream bis = null;
+            ByteArrayOutputStream bos = null;
+            try {
+                bis = new BufferedInputStream(response.getEntity().getContent());
+                bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int readLen = 0;
+                while ((readLen = bis.read(buf)) != -1) {
+                    bos.write(buf, 0, readLen);
+                }
+                String respStr = bos.toString();
+                parseJarPluginInfoResp(respStr, cosEndPointSuffix);
+            } finally {
+                if (bis != null) {
+                    IOUtils.closeStream(bis);
+                }
+                if (bos != null) {
+                    IOUtils.closeStream(bos);
+                }
+            }
+
+            httpGet.releaseConnection();
         } catch (IOException e) {
             String errMsg = "queryJarPluginInfo occur an io exception";
             log.warn(errMsg, e);
             throw new IOException(errMsg, e);
         } finally {
-            if (bis != null) {
-                IOUtils.closeStream(bis);
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (IOException ignored) {
+                }
             }
-            if (bos != null) {
-                IOUtils.closeStream(bos);
-            }
-            if (conn instanceof HttpURLConnection) {
-                ((HttpURLConnection) conn).disconnect();
+            if (httpclient != null) {
+                try {
+                    httpclient.close();
+                } catch (IOException ignored) {
+                }
             }
         }
         log.debug("query jarPluginInfo, usedTimeMs: {}", (System.nanoTime() - startTimeNs) * 1.0 / 1000000);
